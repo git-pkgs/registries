@@ -132,12 +132,13 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 	}
 
 	return &core.Package{
-		Name:        resp.Name,
-		Description: description,
-		Homepage:    resp.HomeURL,
-		Repository:  repository,
-		Licenses:    resp.License,
-		Namespace:   channel,
+		Name:          resp.Name,
+		Description:   description,
+		Homepage:      resp.HomeURL,
+		Repository:    repository,
+		Licenses:      resp.License,
+		Namespace:     channel,
+		LatestVersion: resp.LatestVersion,
 		Metadata: map[string]any{
 			"channel":     channel,
 			"owner":       resp.Owner,

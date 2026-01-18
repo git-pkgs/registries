@@ -5,14 +5,15 @@ import "time"
 
 // Package represents metadata about a package from a registry.
 type Package struct {
-	Name        string
-	Description string
-	Homepage    string
-	Repository  string
-	Licenses    string
-	Keywords    []string
-	Namespace   string         // @scope for npm, groupId for maven
-	Metadata    map[string]any // registry-specific data
+	Name          string
+	Description   string
+	Homepage      string
+	Repository    string
+	Licenses      string
+	Keywords      []string
+	Namespace     string         // @scope for npm, groupId for maven
+	LatestVersion string         // latest version if returned by registry
+	Metadata      map[string]any // registry-specific data
 }
 
 // Version represents a specific version of a package.

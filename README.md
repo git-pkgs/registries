@@ -1,6 +1,6 @@
 # registries
 
-Go library for fetching package metadata from registry APIs. Supports 25 ecosystems including npm, PyPI, Cargo, RubyGems, Go modules, Maven, NuGet, Packagist, Hex, Pub, CocoaPods, Clojars, CPAN, Hackage, CRAN, Conda, Julia, Elm, Dub, LuaRocks, Nimble, Haxelib, Homebrew, Deno, and Terraform with a unified interface.
+Go library for fetching package metadata from registry APIs. Supports 25 ecosystems with a unified interface.
 
 ## Installation
 
@@ -8,9 +8,9 @@ Go library for fetching package metadata from registry APIs. Supports 25 ecosyst
 go get github.com/git-pkgs/registries
 ```
 
-## Usage
+## Usage with PURLs
 
-Import the ecosystems you need, then create a registry client:
+The simplest way to use this library is with Package URLs (PURLs). Pass a PURL string and get back package metadata.
 
 ```go
 package main
@@ -21,33 +21,139 @@ import (
     "log"
 
     "github.com/git-pkgs/registries"
-    _ "github.com/git-pkgs/registries/internal/cargo"
+    _ "github.com/git-pkgs/registries/all"
 )
 
 func main() {
-    reg, err := registries.New("cargo", "", nil)
+    ctx := context.Background()
+
+    // Fetch package info from a PURL
+    pkg, err := registries.FetchPackageFromPURL(ctx, "pkg:cargo/serde@1.0.0", nil)
     if err != nil {
         log.Fatal(err)
     }
-
-    pkg, err := reg.FetchPackage(context.Background(), "serde")
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    fmt.Println(pkg.Name)        // serde
-    fmt.Println(pkg.Repository)  // https://github.com/serde-rs/serde
-    fmt.Println(pkg.Licenses)    // MIT OR Apache-2.0
+    fmt.Println(pkg.Name)       // serde
+    fmt.Println(pkg.Repository) // https://github.com/serde-rs/serde
+    fmt.Println(pkg.Licenses)   // MIT OR Apache-2.0
 }
 ```
 
-To import all ecosystems at once:
+### PURL Functions
+
+```go
+// Fetch package metadata (works with or without version)
+pkg, err := registries.FetchPackageFromPURL(ctx, "pkg:npm/lodash", nil)
+pkg, err := registries.FetchPackageFromPURL(ctx, "pkg:npm/lodash@4.17.21", nil)
+
+// Fetch specific version info (requires version in PURL)
+version, err := registries.FetchVersionFromPURL(ctx, "pkg:cargo/serde@1.0.0", nil)
+fmt.Println(version.PublishedAt)
+fmt.Println(version.Licenses)
+
+// Fetch dependencies for a version (requires version in PURL)
+deps, err := registries.FetchDependenciesFromPURL(ctx, "pkg:npm/express@4.19.0", nil)
+for _, d := range deps {
+    fmt.Printf("%s %s\n", d.Name, d.Requirements)
+}
+
+// Fetch maintainers
+maintainers, err := registries.FetchMaintainersFromPURL(ctx, "pkg:gem/rails", nil)
+for _, m := range maintainers {
+    fmt.Printf("%s <%s>\n", m.Login, m.Email)
+}
+
+// Fetch latest non-yanked version
+latest, err := registries.FetchLatestVersionFromPURL(ctx, "pkg:cargo/serde", nil)
+fmt.Println(latest.Number)      // e.g., "1.0.197"
+fmt.Println(latest.PublishedAt)
+
+// Parse a PURL to get the registry client
+reg, name, version, err := registries.NewFromPURL("pkg:pypi/requests@2.31.0", nil)
+// reg is a Registry for pypi
+// name is "requests"
+// version is "2.31.0"
+
+// Parse a PURL to inspect its components
+purl, err := registries.ParsePURL("pkg:maven/org.apache.commons/commons-lang3@3.12.0")
+fmt.Println(purl.Type)      // maven
+fmt.Println(purl.Namespace) // org.apache.commons
+fmt.Println(purl.Name)      // commons-lang3
+fmt.Println(purl.Version)   // 3.12.0
+fmt.Println(purl.FullName()) // org.apache.commons:commons-lang3
+```
+
+### Bulk Operations
+
+Fetch multiple packages in parallel (default concurrency: 15):
+
+```go
+purls := []string{
+    "pkg:npm/lodash@4.17.21",
+    "pkg:npm/express@4.19.0",
+    "pkg:cargo/serde@1.0.0",
+    "pkg:pypi/requests@2.31.0",
+}
+
+// Fetch all packages in parallel
+packages := registries.BulkFetchPackages(ctx, purls, nil)
+for purl, pkg := range packages {
+    fmt.Printf("%s: %s\n", purl, pkg.Licenses)
+}
+
+// Fetch specific versions in parallel
+versions := registries.BulkFetchVersions(ctx, purls, nil)
+for purl, v := range versions {
+    fmt.Printf("%s: published %s\n", purl, v.PublishedAt)
+}
+
+// Fetch latest versions in parallel
+latest := registries.BulkFetchLatestVersions(ctx, purls, nil)
+for purl, v := range latest {
+    fmt.Printf("%s: latest is %s\n", purl, v.Number)
+}
+
+// Custom concurrency limit
+packages = registries.BulkFetchPackagesWithConcurrency(ctx, purls, nil, 5)
+```
+
+### PURL Format Examples
+
+| Ecosystem | PURL Example |
+|-----------|-------------|
+| Cargo | `pkg:cargo/serde@1.0.0` |
+| npm | `pkg:npm/lodash@4.17.21` |
+| npm (scoped) | `pkg:npm/%40babel/core@7.24.0` |
+| PyPI | `pkg:pypi/requests@2.31.0` |
+| Go | `pkg:golang/github.com/gorilla/mux@v1.8.0` |
+| Maven | `pkg:maven/org.apache.commons/commons-lang3@3.12.0` |
+| RubyGems | `pkg:gem/rails@7.1.0` |
+| Terraform | `pkg:terraform/hashicorp/consul/aws@0.11.0` |
+
+## Direct Registry Usage
+
+You can also create registry clients directly by ecosystem name.
 
 ```go
 import (
     "github.com/git-pkgs/registries"
-    _ "github.com/git-pkgs/registries/all"
+    _ "github.com/git-pkgs/registries/internal/cargo"
 )
+
+reg, err := registries.New("cargo", "", nil)
+if err != nil {
+    log.Fatal(err)
+}
+
+pkg, err := reg.FetchPackage(ctx, "serde")
+versions, err := reg.FetchVersions(ctx, "serde")
+deps, err := reg.FetchDependencies(ctx, "serde", "1.0.0")
+maintainers, err := reg.FetchMaintainers(ctx, "serde")
+```
+
+Import all ecosystems at once:
+
+```go
+import _ "github.com/git-pkgs/registries/all"
 ```
 
 ## Supported Ecosystems
@@ -80,97 +186,69 @@ import (
 | Deno | `deno` | https://apiland.deno.dev |
 | Terraform | `terraform` | https://registry.terraform.io |
 
-## API
+## Types
 
-### Creating a Registry
-
-```go
-// Use default registry URL and client
-reg, err := registries.New("npm", "", nil)
-
-// Use custom registry URL
-reg, err := registries.New("npm", "https://npm.pkg.github.com", nil)
-
-// Use custom client with options
-client := registries.NewClient(
-    registries.WithTimeout(60 * time.Second),
-    registries.WithMaxRetries(3),
-)
-reg, err := registries.New("npm", "", client)
-```
-
-### Fetching Package Metadata
+### Package
 
 ```go
-pkg, err := reg.FetchPackage(ctx, "lodash")
-
-// Package fields:
-// - Name        string
-// - Description string
-// - Homepage    string
-// - Repository  string
-// - Licenses    string
-// - Keywords    []string
-// - Namespace   string         (e.g., "@babel" for npm scoped packages)
-// - Metadata    map[string]any (registry-specific data)
-```
-
-### Fetching Versions
-
-```go
-versions, err := reg.FetchVersions(ctx, "lodash")
-
-for _, v := range versions {
-    fmt.Printf("%s published %s\n", v.Number, v.PublishedAt)
-
-    if v.Status == registries.StatusYanked {
-        fmt.Println("  (yanked)")
-    }
+type Package struct {
+    Name          string
+    Description   string
+    Homepage      string
+    Repository    string
+    Licenses      string
+    Keywords      []string
+    Namespace     string         // @scope for npm, groupId for maven
+    LatestVersion string         // latest version (populated by some registries)
+    Metadata      map[string]any // registry-specific data
 }
-
-// Version fields:
-// - Number      string
-// - PublishedAt time.Time
-// - Licenses    string
-// - Integrity   string        (e.g., "sha256-...")
-// - Status      VersionStatus ("", "yanked", "deprecated", "retracted")
-// - Metadata    map[string]any
 ```
 
-### Fetching Dependencies
+Some registries (npm, pub, deno, conda) populate `LatestVersion` directly. For others, use `FetchLatestVersionFromPURL`.
+
+### Version
 
 ```go
-deps, err := reg.FetchDependencies(ctx, "express", "4.19.0")
-
-for _, d := range deps {
-    fmt.Printf("%s %s (%s)\n", d.Name, d.Requirements, d.Scope)
+type Version struct {
+    Number      string
+    PublishedAt time.Time
+    Licenses    string
+    Integrity   string        // sha256-..., sha512-...
+    Status      VersionStatus // "", "yanked", "deprecated", "retracted"
+    Metadata    map[string]any
 }
-
-// Dependency fields:
-// - Name         string
-// - Requirements string
-// - Scope        Scope (runtime, development, test, build, optional)
-// - Optional     bool
 ```
 
-### Fetching Maintainers
+### Dependency
 
 ```go
-maintainers, err := reg.FetchMaintainers(ctx, "rails")
-
-for _, m := range maintainers {
-    fmt.Printf("%s <%s>\n", m.Login, m.Email)
+type Dependency struct {
+    Name         string
+    Requirements string
+    Scope        Scope // runtime, development, test, build, optional
+    Optional     bool
 }
-
-// Maintainer fields:
-// - UUID, Login, Name, Email, URL, Role string
 ```
 
-### URL Builder
-
-Each registry provides URLs for packages:
+### Maintainer
 
 ```go
+type Maintainer struct {
+    UUID  string
+    Login string
+    Name  string
+    Email string
+    URL   string
+    Role  string
+}
+```
+
+## URL Builder
+
+Each registry can generate URLs for packages:
+
+```go
+reg, _, _, _ := registries.NewFromPURL("pkg:cargo/serde@1.0.0", nil)
 urls := reg.URLs()
 
 urls.Registry("serde", "1.0.0")      // https://crates.io/crates/serde/1.0.0
@@ -182,7 +260,7 @@ urls.PURL("serde", "1.0.0")          // pkg:cargo/serde@1.0.0
 ## Error Handling
 
 ```go
-pkg, err := reg.FetchPackage(ctx, "nonexistent")
+pkg, err := registries.FetchPackageFromPURL(ctx, "pkg:cargo/nonexistent", nil)
 if err != nil {
     var notFound *registries.NotFoundError
     if errors.As(err, &notFound) {
@@ -199,47 +277,34 @@ The default client includes:
 - 5 retries with exponential backoff (50ms base)
 - Automatic retry on 429 and 5xx responses
 
-You can provide a custom rate limiter:
+Custom client:
 
 ```go
-type myLimiter struct{}
-
-func (l *myLimiter) Wait(ctx context.Context) error {
-    // implement rate limiting
-    return nil
-}
-
-client := registries.DefaultClient()
-client = client.WithRateLimiter(&myLimiter{})
+client := registries.NewClient(
+    registries.WithTimeout(60 * time.Second),
+    registries.WithMaxRetries(3),
+)
+pkg, err := registries.FetchPackageFromPURL(ctx, "pkg:npm/lodash", client)
 ```
 
-## Scoped Packages
+## Private Registries
 
-npm scoped packages work as expected:
+PURLs with a `repository_url` qualifier automatically use that URL:
 
 ```go
-pkg, _ := reg.FetchPackage(ctx, "@babel/core")
-fmt.Println(pkg.Namespace) // "babel"
-fmt.Println(reg.URLs().PURL("@babel/core", "7.24.0")) // pkg:npm/@babel/core@7.24.0
+// This queries https://npm.mycompany.com instead of npmjs.org
+purl := "pkg:npm/%40mycompany/utils@1.0.0?repository_url=https://npm.mycompany.com"
+pkg, err := registries.FetchPackageFromPURL(ctx, purl, nil)
+
+// Works with all PURL functions
+versions := registries.BulkFetchPackages(ctx, []string{
+    "pkg:npm/lodash@4.17.21",                                              // public
+    "pkg:npm/%40internal/lib@1.0.0?repository_url=https://npm.internal",   // private
+}, nil)
 ```
 
-## PyPI Name Normalization
-
-PyPI package names are normalized according to PEP 503:
+Or create a registry directly:
 
 ```go
-// These all resolve to the same package:
-reg.FetchPackage(ctx, "typing-extensions")
-reg.FetchPackage(ctx, "typing_extensions")
-reg.FetchPackage(ctx, "Typing-Extensions")
-```
-
-## Go Module Proxy Encoding
-
-Capital letters in Go module paths are encoded per the goproxy protocol:
-
-```go
-// github.com/Azure/go-sdk becomes github.com/!azure/go-sdk in URLs
-urls.Download("github.com/Azure/go-sdk", "v1.0.0")
-// https://proxy.golang.org/github.com/!azure/go-sdk/@v/v1.0.0.zip
+reg, err := registries.New("npm", "https://npm.pkg.github.com", client)
 ```

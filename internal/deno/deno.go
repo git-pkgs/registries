@@ -102,13 +102,13 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 	}
 
 	return &core.Package{
-		Name:        resp.Name,
-		Description: resp.Description,
-		Homepage:    fmt.Sprintf("https://deno.land/x/%s", resp.Name),
-		Repository:  repository,
+		Name:          resp.Name,
+		Description:   resp.Description,
+		Homepage:      fmt.Sprintf("https://deno.land/x/%s", resp.Name),
+		Repository:    repository,
+		LatestVersion: resp.LatestVersion,
 		Metadata: map[string]any{
-			"latest_version": resp.LatestVersion,
-			"upload_type":    resp.UploadOptions.Type,
+			"upload_type": resp.UploadOptions.Type,
 		},
 	}, nil
 }

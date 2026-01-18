@@ -114,13 +114,14 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 	}
 
 	pkg := &core.Package{
-		Name:        resp.ID,
-		Description: coalesceString(latest.Description, resp.Description),
-		Homepage:    extractString(resp.Homepage),
-		Repository:  extractRepoURL(resp.Repository, latest.Repository),
-		Licenses:    extractLicense(latest.License),
-		Keywords:    extractKeywords(latest.Keywords),
-		Namespace:   extractNamespace(resp.ID),
+		Name:          resp.ID,
+		Description:   coalesceString(latest.Description, resp.Description),
+		Homepage:      extractString(resp.Homepage),
+		Repository:    extractRepoURL(resp.Repository, latest.Repository),
+		Licenses:      extractLicense(latest.License),
+		Keywords:      extractKeywords(latest.Keywords),
+		Namespace:     extractNamespace(resp.ID),
+		LatestVersion: latestVersion,
 		Metadata: map[string]any{
 			"dist-tags": resp.DistTags,
 			"funding":   latest.Funding,

@@ -88,11 +88,12 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 	}
 
 	return &core.Package{
-		Name:        resp.Name,
-		Description: latest.Description,
-		Homepage:    latest.Homepage,
-		Repository:  repository,
-		Licenses:    latest.License,
+		Name:          resp.Name,
+		Description:   latest.Description,
+		Homepage:      latest.Homepage,
+		Repository:    repository,
+		Licenses:      latest.License,
+		LatestVersion: resp.Latest.Version,
 	}, nil
 }
 
