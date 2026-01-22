@@ -308,3 +308,12 @@ Or create a registry directly:
 ```go
 reg, err := registries.New("npm", "https://npm.pkg.github.com", client)
 ```
+
+### Limitations
+
+The library makes direct HTTP requests to registry APIs. It doesn't read package manager config files (`.npmrc`, `.pypirc`, `pip.conf`, etc.) for registry URLs or credentials. To use a private registry, you must either:
+
+1. Include the `repository_url` qualifier in the PURL
+2. Pass the URL explicitly when creating a registry client
+
+Authentication for private registries isn't currently supported. Unauthenticated endpoints work, but registries requiring tokens or credentials will fail.
