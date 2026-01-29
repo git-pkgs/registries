@@ -50,7 +50,7 @@ func TestFetchPackage(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -90,7 +90,7 @@ func TestFetchPackageWithChannel(t *testing.T) {
 			Summary: "Tools for manipulating next-gen sequencing data",
 			Owner:   "bioconda",
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -119,7 +119,7 @@ func TestFetchVersions(t *testing.T) {
 				{Version: "1.5.3", UploadTime: 1678300000, MD5: "ghi789"},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -167,7 +167,7 @@ func TestFetchDependencies(t *testing.T) {
 				},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -200,7 +200,7 @@ func TestFetchMaintainers(t *testing.T) {
 			Name:  "scipy",
 			Owner: "conda-forge",
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 

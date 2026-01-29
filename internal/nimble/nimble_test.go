@@ -31,7 +31,7 @@ func TestFetchPackage(t *testing.T) {
 				{Version: "0.10.2"},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -72,7 +72,7 @@ func TestFetchVersions(t *testing.T) {
 				{Version: "0.1.2"},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -110,7 +110,7 @@ func TestFetchDependencies(t *testing.T) {
 				},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 

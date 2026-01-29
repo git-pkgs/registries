@@ -51,7 +51,7 @@ func TestFetchPackage(t *testing.T) {
 				},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 
 	// POM endpoint
@@ -73,7 +73,7 @@ func TestFetchPackage(t *testing.T) {
     <url>https://github.com/google/guava</url>
   </scm>
 </project>`
-		w.Write([]byte(pom))
+		_, _ = w.Write([]byte(pom))
 	})
 
 	server := httptest.NewServer(mux)
@@ -115,7 +115,7 @@ func TestFetchVersions(t *testing.T) {
 				},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 
 	server := httptest.NewServer(mux)
@@ -147,7 +147,7 @@ func TestFetchVersionsFallback(t *testing.T) {
 	// Search API returns empty
 	mux.HandleFunc("/solrsearch/select", func(w http.ResponseWriter, r *http.Request) {
 		resp := searchResponse{Response: searchResponseBody{NumFound: 0}}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 
 	// Fallback to maven-metadata.xml
@@ -165,7 +165,7 @@ func TestFetchVersionsFallback(t *testing.T) {
     </versions>
   </versioning>
 </metadata>`
-		w.Write([]byte(metadata))
+		_, _ = w.Write([]byte(metadata))
 	})
 
 	server := httptest.NewServer(mux)
@@ -213,7 +213,7 @@ func TestFetchDependencies(t *testing.T) {
     </dependency>
   </dependencies>
 </project>`
-		w.Write([]byte(pom))
+		_, _ = w.Write([]byte(pom))
 	})
 
 	server := httptest.NewServer(mux)
@@ -263,7 +263,7 @@ func TestFetchMaintainers(t *testing.T) {
 				},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 
 	mux.HandleFunc("/com/example/test/1.0.0/test-1.0.0.pom", func(w http.ResponseWriter, r *http.Request) {
@@ -285,7 +285,7 @@ func TestFetchMaintainers(t *testing.T) {
     </developer>
   </developers>
 </project>`
-		w.Write([]byte(pom))
+		_, _ = w.Write([]byte(pom))
 	})
 
 	server := httptest.NewServer(mux)
@@ -326,7 +326,7 @@ func TestParentPOMResolution(t *testing.T) {
   <artifactId>child</artifactId>
   <name>Child Project</name>
 </project>`
-		w.Write([]byte(pom))
+		_, _ = w.Write([]byte(pom))
 	})
 
 	// Parent POM
@@ -347,7 +347,7 @@ func TestParentPOMResolution(t *testing.T) {
     <url>https://github.com/example/parent</url>
   </scm>
 </project>`
-		w.Write([]byte(pom))
+		_, _ = w.Write([]byte(pom))
 	})
 
 	server := httptest.NewServer(mux)

@@ -280,7 +280,7 @@ func (u *URLs) PURL(name, version string) string {
 	encoded := encodeForProxy(name)
 	parts := strings.Split(name, "/")
 	namespace := ""
-	pkgName := name
+	var pkgName string
 
 	if len(parts) > 1 {
 		namespace = strings.Join(parts[:len(parts)-1], "/")

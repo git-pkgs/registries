@@ -61,7 +61,7 @@ func BenchmarkNew(b *testing.B) {
 func BenchmarkFetchPackage_Cargo(b *testing.B) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(cargoResponse)
+		_ = json.NewEncoder(w).Encode(cargoResponse)
 	}))
 	defer server.Close()
 
@@ -77,7 +77,7 @@ func BenchmarkFetchPackage_Cargo(b *testing.B) {
 func BenchmarkFetchPackage_npm(b *testing.B) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(npmResponse)
+		_ = json.NewEncoder(w).Encode(npmResponse)
 	}))
 	defer server.Close()
 
@@ -93,7 +93,7 @@ func BenchmarkFetchPackage_npm(b *testing.B) {
 func BenchmarkFetchVersions_Cargo(b *testing.B) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(cargoResponse)
+		_ = json.NewEncoder(w).Encode(cargoResponse)
 	}))
 	defer server.Close()
 
@@ -173,7 +173,7 @@ func BenchmarkJSONParsing_Large(b *testing.B) {
 func BenchmarkFetchPackage_Parallel(b *testing.B) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(cargoResponse)
+		_ = json.NewEncoder(w).Encode(cargoResponse)
 	}))
 	defer server.Close()
 

@@ -38,7 +38,7 @@ func TestFetchPackage(t *testing.T) {
 			w.WriteHeader(404)
 			return
 		}
-		w.Write([]byte(sampleDescription))
+		_, _ = w.Write([]byte(sampleDescription))
 	}))
 	defer server.Close()
 
@@ -75,7 +75,7 @@ Title: A Grammar of Data Manipulation
 License: MIT + file LICENSE
 Published: 2023-11-17
 `
-		w.Write([]byte(desc))
+		_, _ = w.Write([]byte(desc))
 	})
 
 	mux.HandleFunc("/src/contrib/Archive/dplyr/", func(w http.ResponseWriter, r *http.Request) {
@@ -84,7 +84,7 @@ Published: 2023-11-17
 <a href="dplyr_1.1.2.tar.gz">dplyr_1.1.2.tar.gz</a>
 <a href="dplyr_1.0.0.tar.gz">dplyr_1.0.0.tar.gz</a>
 </body></html>`
-		w.Write([]byte(html))
+		_, _ = w.Write([]byte(html))
 	})
 
 	server := httptest.NewServer(mux)
@@ -110,7 +110,7 @@ Published: 2023-11-17
 
 func TestFetchDependencies(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(sampleDescription))
+		_, _ = w.Write([]byte(sampleDescription))
 	}))
 	defer server.Close()
 
@@ -151,7 +151,7 @@ func TestFetchDependencies(t *testing.T) {
 
 func TestFetchMaintainers(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(sampleDescription))
+		_, _ = w.Write([]byte(sampleDescription))
 	}))
 	defer server.Close()
 

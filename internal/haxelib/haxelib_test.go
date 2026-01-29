@@ -32,7 +32,7 @@ func TestFetchPackage(t *testing.T) {
 				{Version: "9.1.0"},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -70,7 +70,7 @@ func TestFetchVersions(t *testing.T) {
 				{Version: "8.0.2"},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -108,7 +108,7 @@ func TestFetchDependencies(t *testing.T) {
 				},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -142,7 +142,7 @@ func TestFetchMaintainers(t *testing.T) {
 			Owner:        "jdonaldson",
 			Contributors: []string{"player-03", "jdonaldson", "Aurel300"},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 

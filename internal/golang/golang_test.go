@@ -14,7 +14,7 @@ import (
 func TestFetchPackage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/github.com/gorilla/mux/@v/list" {
-			w.Write([]byte("v1.8.0\nv1.7.0\n"))
+			_, _ = w.Write([]byte("v1.8.0\nv1.7.0\n"))
 			return
 		}
 		w.WriteHeader(404)
@@ -59,14 +59,14 @@ func TestFetchVersions(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/github.com/gorilla/mux/@v/list":
-			w.Write([]byte("v1.8.0\nv1.7.0\n"))
+			_, _ = w.Write([]byte("v1.8.0\nv1.7.0\n"))
 		case "/github.com/gorilla/mux/@v/v1.8.0.info":
-			json.NewEncoder(w).Encode(versionInfo{
+			_ = json.NewEncoder(w).Encode(versionInfo{
 				Version: "v1.8.0",
 				Time:    time.Date(2023, 1, 15, 12, 0, 0, 0, time.UTC),
 			})
 		case "/github.com/gorilla/mux/@v/v1.7.0.info":
-			json.NewEncoder(w).Encode(versionInfo{
+			_ = json.NewEncoder(w).Encode(versionInfo{
 				Version: "v1.7.0",
 				Time:    time.Date(2022, 6, 1, 12, 0, 0, 0, time.UTC),
 			})
@@ -103,7 +103,7 @@ require (
 	golang.org/x/net v0.0.0-20210614182718-04defd469f4e // indirect
 )
 `
-		w.Write([]byte(goMod))
+		_, _ = w.Write([]byte(goMod))
 	}))
 	defer server.Close()
 

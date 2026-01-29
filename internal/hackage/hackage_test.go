@@ -13,7 +13,7 @@ func TestFetchPackage(t *testing.T) {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/package/aeson/preferred", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("normal-versions: 2.2.0.0, 2.1.0.0, 2.0.0.0"))
+		_, _ = w.Write([]byte("normal-versions: 2.2.0.0, 2.1.0.0, 2.0.0.0"))
 	})
 
 	mux.HandleFunc("/package/aeson-2.2.0.0/aeson.cabal", func(w http.ResponseWriter, r *http.Request) {
@@ -30,7 +30,7 @@ source-repository head
   type:     git
   location: https://github.com/haskell/aeson
 `
-		w.Write([]byte(cabal))
+		_, _ = w.Write([]byte(cabal))
 	})
 
 	server := httptest.NewServer(mux)
@@ -60,19 +60,19 @@ func TestFetchVersions(t *testing.T) {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/package/lens/preferred", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("normal-versions: 5.2.3, 5.2.2, 5.1.0"))
+		_, _ = w.Write([]byte("normal-versions: 5.2.3, 5.2.2, 5.1.0"))
 	})
 
 	mux.HandleFunc("/package/lens-5.2.3/upload-time", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("2023-10-15T12:00:00Z"))
+		_, _ = w.Write([]byte("2023-10-15T12:00:00Z"))
 	})
 
 	mux.HandleFunc("/package/lens-5.2.2/upload-time", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("2023-08-01T12:00:00Z"))
+		_, _ = w.Write([]byte("2023-08-01T12:00:00Z"))
 	})
 
 	mux.HandleFunc("/package/lens-5.1.0/upload-time", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("2023-01-15T12:00:00Z"))
+		_, _ = w.Write([]byte("2023-01-15T12:00:00Z"))
 	})
 
 	server := httptest.NewServer(mux)
@@ -116,7 +116,7 @@ test-suite tests
     aeson,
     QuickCheck >= 2.10
 `
-		w.Write([]byte(cabal))
+		_, _ = w.Write([]byte(cabal))
 	})
 
 	server := httptest.NewServer(mux)

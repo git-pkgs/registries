@@ -30,7 +30,7 @@ func TestFetchPackage(t *testing.T) {
 			},
 			Maintainers: []maintainerInfo{{Name: "hisham"}},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -65,7 +65,7 @@ func TestFetchVersions(t *testing.T) {
 				"1.0.0-1": {},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -99,7 +99,7 @@ func TestFetchDependencies(t *testing.T) {
 				"luafilesystem",
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -128,7 +128,7 @@ func TestFetchMaintainers(t *testing.T) {
 				{Name: "hisham"},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 

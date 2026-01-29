@@ -29,7 +29,7 @@ func TestFetchPackage(t *testing.T) {
 				{Version: "0.9.5", Date: "2023-06-15T10:30:00Z", License: "BSL-1.0"},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -66,7 +66,7 @@ func TestFetchVersions(t *testing.T) {
 				{Version: "3.3.12", Date: "2023-07-01T12:00:00Z", License: "BSL-1.0"},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -108,7 +108,7 @@ func TestFetchDependencies(t *testing.T) {
 				},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -141,7 +141,7 @@ func TestFetchMaintainers(t *testing.T) {
 			Name:  "test-pkg",
 			Owner: "test-owner",
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 

@@ -38,7 +38,7 @@ func TestFetchPackage(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -80,7 +80,7 @@ func TestFetchPackageWithMapLicense(t *testing.T) {
 				},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -105,7 +105,7 @@ func TestFetchVersions(t *testing.T) {
 				{Name: "5.16.0", CreatedAt: time.Date(2023, 7, 1, 0, 0, 0, 0, time.UTC)},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -145,7 +145,7 @@ func TestFetchDependencies(t *testing.T) {
 				},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -181,7 +181,7 @@ func TestFetchMaintainers(t *testing.T) {
 				{Name: "SnapKit", Email: "info@snapkit.io"},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 

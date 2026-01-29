@@ -41,7 +41,7 @@ func TestFetchPackage(t *testing.T) {
 			w.WriteHeader(404)
 			return
 		}
-		w.Write([]byte(samplePackageToml))
+		_, _ = w.Write([]byte(samplePackageToml))
 	}))
 	defer server.Close()
 
@@ -68,7 +68,7 @@ func TestFetchVersions(t *testing.T) {
 			w.WriteHeader(404)
 			return
 		}
-		w.Write([]byte(sampleVersionsToml))
+		_, _ = w.Write([]byte(sampleVersionsToml))
 	}))
 	defer server.Close()
 
@@ -97,7 +97,7 @@ func TestFetchDependencies(t *testing.T) {
 			w.WriteHeader(404)
 			return
 		}
-		w.Write([]byte(sampleDepsToml))
+		_, _ = w.Write([]byte(sampleDepsToml))
 	}))
 	defer server.Close()
 
@@ -145,7 +145,7 @@ func TestFetchDependenciesNoDeps(t *testing.T) {
 
 func TestFetchMaintainers(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(samplePackageToml))
+		_, _ = w.Write([]byte(samplePackageToml))
 	}))
 	defer server.Close()
 
