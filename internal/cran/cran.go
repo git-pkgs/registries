@@ -269,12 +269,9 @@ func (r *Registry) FetchDependencies(ctx context.Context, name, version string) 
 
 	desc := parseDescription(string(body))
 
-	// If version doesn't match, we'd need to fetch from archive
-	// For simplicity, we'll just use the current version's dependencies
-	if version != "" && version != desc.Version {
-		// Could fetch from archive, but CRAN archive doesn't have extracted DESCRIPTION
-		// Return current version's dependencies as approximation
-	}
+	// Note: If version doesn't match, we'd ideally fetch from archive, but CRAN
+	// archive doesn't have extracted DESCRIPTION files. Using current version's
+	// dependencies as an approximation.
 
 	var deps []core.Dependency
 

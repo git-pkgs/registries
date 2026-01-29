@@ -19,7 +19,7 @@ func TestFetchPackage(t *testing.T) {
 			"1.1.2": 1577836800000,
 			"1.0.0": 1546300800000,
 		}
-		json.NewEncoder(w).Encode(releases)
+		_ = json.NewEncoder(w).Encode(releases)
 	})
 
 	mux.HandleFunc("/packages/elm/json/1.1.3/elm.json", func(w http.ResponseWriter, r *http.Request) {
@@ -34,7 +34,7 @@ func TestFetchPackage(t *testing.T) {
 				"elm/core": "1.0.0 <= v < 2.0.0",
 			},
 		}
-		json.NewEncoder(w).Encode(elmJson)
+		_ = json.NewEncoder(w).Encode(elmJson)
 	})
 
 	server := httptest.NewServer(mux)
@@ -70,7 +70,7 @@ func TestFetchVersions(t *testing.T) {
 			"1.1.2": 1577836800000,
 			"1.0.0": 1546300800000,
 		}
-		json.NewEncoder(w).Encode(releases)
+		_ = json.NewEncoder(w).Encode(releases)
 	}))
 	defer server.Close()
 
@@ -108,7 +108,7 @@ func TestFetchDependencies(t *testing.T) {
 				"elm-explorations/test": "1.0.0 <= v < 2.0.0",
 			},
 		}
-		json.NewEncoder(w).Encode(elmJson)
+		_ = json.NewEncoder(w).Encode(elmJson)
 	}))
 	defer server.Close()
 

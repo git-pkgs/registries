@@ -43,7 +43,7 @@ func TestFetchPackage(t *testing.T) {
 				{Version: "1.11.0", Downloads: 10000},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 
 	mux.HandleFunc("/api/artifacts/ring/ring-core/versions/1.11.0", func(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +54,7 @@ func TestFetchPackage(t *testing.T) {
 				URL: "https://github.com/ring-clojure/ring.git",
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 
 	server := httptest.NewServer(mux)
@@ -92,12 +92,12 @@ func TestFetchPackageSingleName(t *testing.T) {
 				{Version: "1.7.0"},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 
 	mux.HandleFunc("/api/artifacts/compojure/compojure/versions/1.7.0", func(w http.ResponseWriter, r *http.Request) {
 		resp := versionDetailResponse{Version: "1.7.0"}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 
 	server := httptest.NewServer(mux)
@@ -127,7 +127,7 @@ func TestFetchVersions(t *testing.T) {
 				{Version: "1.0.5", Downloads: 50000},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 
 	mux.HandleFunc("/api/artifacts/hiccup/hiccup/versions/2.0.0", func(w http.ResponseWriter, r *http.Request) {
@@ -136,7 +136,7 @@ func TestFetchVersions(t *testing.T) {
 			CreatedEpoch: 1699900000000,
 			Licenses:     []string{"EPL-1.0"},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 
 	mux.HandleFunc("/api/artifacts/hiccup/hiccup/versions/1.0.5", func(w http.ResponseWriter, r *http.Request) {
@@ -145,7 +145,7 @@ func TestFetchVersions(t *testing.T) {
 			CreatedEpoch: 1600000000000,
 			Licenses:     []string{"EPL-1.0"},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 
 	server := httptest.NewServer(mux)
@@ -187,7 +187,7 @@ func TestFetchDependencies(t *testing.T) {
 				{GroupName: "clj-time", JarName: "clj-time", Version: "0.15.2", Scope: "test"},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 

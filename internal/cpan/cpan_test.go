@@ -47,7 +47,7 @@ func TestFetchPackage(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -87,7 +87,7 @@ func TestFetchVersions(t *testing.T) {
 				},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -134,7 +134,7 @@ func TestFetchDependencies(t *testing.T) {
 				{Module: "Test::Fatal", Version: "0.001", Phase: "test", Relationship: "recommends"},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -178,7 +178,7 @@ func TestFetchMaintainers(t *testing.T) {
 			Name:   "Moose",
 			Author: "ETHER",
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 
 	mux.HandleFunc("/v1/author/ETHER", func(w http.ResponseWriter, r *http.Request) {
@@ -188,7 +188,7 @@ func TestFetchMaintainers(t *testing.T) {
 			Email:   []string{"ether@cpan.org"},
 			Website: []string{"https://metacpan.org/author/ETHER"},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 
 	server := httptest.NewServer(mux)

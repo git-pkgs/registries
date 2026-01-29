@@ -28,7 +28,7 @@ func TestFetchPackage(t *testing.T) {
 				Repository: "oakserver/oak",
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -58,7 +58,7 @@ func TestFetchVersions(t *testing.T) {
 			Name:     "std",
 			Versions: []string{"0.210.0", "0.209.0", "0.208.0", "0.207.0"},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 

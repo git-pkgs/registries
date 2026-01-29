@@ -33,7 +33,7 @@ func TestFetchPackage(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -64,7 +64,7 @@ func TestFetchVersions(t *testing.T) {
 				{Version: "5.0.0", Pubspec: pubspec{License: "MIT"}},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -109,7 +109,7 @@ func TestFetchDependencies(t *testing.T) {
 			},
 		}
 
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -126,9 +126,10 @@ func TestFetchDependencies(t *testing.T) {
 	runtimeCount := 0
 	devCount := 0
 	for _, d := range deps {
-		if d.Scope == core.Runtime {
+		switch d.Scope {
+		case core.Runtime:
 			runtimeCount++
-		} else if d.Scope == core.Development {
+		case core.Development:
 			devCount++
 		}
 	}
@@ -162,7 +163,7 @@ func TestFetchDependenciesGit(t *testing.T) {
 				},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 

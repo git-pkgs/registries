@@ -21,7 +21,7 @@ func BenchmarkClient_GetJSON(b *testing.B) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -44,7 +44,7 @@ Depends: R (>= 4.0)
 `
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(body))
+		_, _ = w.Write([]byte(body))
 	}))
 	defer server.Close()
 

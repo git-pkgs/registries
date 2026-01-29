@@ -27,7 +27,7 @@ func TestFetchPackage(t *testing.T) {
 			Homepage: "https://www.gnu.org/software/wget/",
 			Versions: versionsInfo{Stable: "1.21.4", Bottle: true},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -56,7 +56,7 @@ func TestFetchPackageWithGitHubRepo(t *testing.T) {
 			Homepage: "https://github.com/stedolan/jq",
 			License:  "MIT",
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -87,7 +87,7 @@ func TestFetchVersions(t *testing.T) {
 			},
 			VersionedFormulae: []string{"python@3.11", "python@3.10", "python@3.9"},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -118,7 +118,7 @@ func TestFetchDependencies(t *testing.T) {
 			TestDependencies:  []string{"webp"},
 			OptionalDependencies: []string{"ghostscript"},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
