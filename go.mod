@@ -1,6 +1,6 @@
 module github.com/git-pkgs/registries
 
-go 1.25.5
+go 1.25.6
 
 require (
 	github.com/git-pkgs/purl v0.1.1
