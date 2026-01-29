@@ -157,7 +157,7 @@ func (c *Client) Head(ctx context.Context, url string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	return resp.StatusCode, nil
 }

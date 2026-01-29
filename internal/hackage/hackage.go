@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -269,10 +270,10 @@ func compareVersions(a, b string) int {
 	for i := 0; i < maxLen; i++ {
 		var aNum, bNum int
 		if i < len(aParts) {
-			fmt.Sscanf(aParts[i], "%d", &aNum)
+			aNum, _ = strconv.Atoi(aParts[i])
 		}
 		if i < len(bParts) {
-			fmt.Sscanf(bParts[i], "%d", &bNum)
+			bNum, _ = strconv.Atoi(bParts[i])
 		}
 
 		if aNum != bNum {
