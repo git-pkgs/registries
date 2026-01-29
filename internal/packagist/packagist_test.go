@@ -155,9 +155,10 @@ func TestFetchDependencies(t *testing.T) {
 		if d.Name == "php" {
 			t.Error("php should be filtered from dependencies")
 		}
-		if d.Scope == core.Runtime {
+		switch d.Scope {
+		case core.Runtime:
 			runtimeCount++
-		} else if d.Scope == core.Development {
+		case core.Development:
 			devCount++
 		}
 	}

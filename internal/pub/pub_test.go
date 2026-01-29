@@ -126,9 +126,10 @@ func TestFetchDependencies(t *testing.T) {
 	runtimeCount := 0
 	devCount := 0
 	for _, d := range deps {
-		if d.Scope == core.Runtime {
+		switch d.Scope {
+		case core.Runtime:
 			runtimeCount++
-		} else if d.Scope == core.Development {
+		case core.Development:
 			devCount++
 		}
 	}
