@@ -2,12 +2,12 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/git-pkgs/packageurl-go v0.0.0-20260115093137-a0c26f7ee19e h1:HP9nixDfQIsqSBVYoGA9+FoimW8e2vSUg4cCqXLbX08=
 github.com/git-pkgs/packageurl-go v0.0.0-20260115093137-a0c26f7ee19e/go.mod h1:nKAWB8E6uk1MHqiS/lQb9pYBGH2+mdJ2PJc2s50dQY0=
-github.com/git-pkgs/purl v0.1.3 h1:ZbsyXjIyvcTfZ5eTl+JwpN3dvrbm3uV94Z3sjuafJy4=
-github.com/git-pkgs/purl v0.1.3/go.mod h1:2lthcr/s+JtSz1KV/M2gp3L98aGx0OqwQ7+23JNokIk=
+github.com/git-pkgs/purl v0.1.5 h1:OsOHkhFPEzVaro+mtEajlYn88vRuRF34wtH5JtLaXH0=
+github.com/git-pkgs/purl v0.1.5/go.mod h1:4RPpP/nJBGljfUiSpyIcFsieXLUahEoH0gSwjWfjhUQ=
 github.com/git-pkgs/spdx v0.1.0 h1:kBcB2iIc3A8qSAU/MtqywKslEo+FRct2daFLX+pwZdU=
 github.com/git-pkgs/spdx v0.1.0/go.mod h1:Cmpseu5vIhDPnpFXhTVBCJhjZUW3ILck/zhycHHKcXA=
-github.com/git-pkgs/vers v0.2.1 h1:tK63tJIa/v9IWz2hMOTc4Z6McDCQfgDoYfMUQez9+Dw=
-github.com/git-pkgs/vers v0.2.1/go.mod h1:biTbSQK1qdbrsxDEKnqe3Jzclxz8vW6uDcwKjfUGcOo=
+github.com/git-pkgs/vers v0.2.2 h1:42QkiIURhGN2wM8AuYYU+FbzS1YV6jmdGd1RiFp7gXs=
+github.com/git-pkgs/vers v0.2.2/go.mod h1:biTbSQK1qdbrsxDEKnqe3Jzclxz8vW6uDcwKjfUGcOo=
 github.com/github/go-spdx/v2 v2.3.6 h1:9flm625VmmTlWXi0YH5W9V8FdMfulvxalHdYnUfoqxc=
 github.com/github/go-spdx/v2 v2.3.6/go.mod h1:/5rwgS0txhGtRdUZwc02bTglzg6HK3FfuEbECKlK2Sg=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
