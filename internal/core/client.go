@@ -31,7 +31,7 @@ func DefaultClient() *Client {
 		HTTPClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		UserAgent:  "registries/1.0",
+		UserAgent:  "registries",
 		MaxRetries: 5,
 		BaseDelay:  50 * time.Millisecond,
 	}
