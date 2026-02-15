@@ -257,6 +257,18 @@ urls.Documentation("serde", "1.0.0") // https://docs.rs/serde/1.0.0
 urls.PURL("serde", "1.0.0")          // pkg:cargo/serde@1.0.0
 ```
 
+`BuildURLs` collects all non-empty URLs into a map:
+
+```go
+allURLs := registries.BuildURLs(urls, "serde", "1.0.0")
+// map[string]string{
+//   "registry": "https://crates.io/crates/serde/1.0.0",
+//   "download": "https://static.crates.io/crates/serde/serde-1.0.0.crate",
+//   "docs":     "https://docs.rs/serde/1.0.0",
+//   "purl":     "pkg:cargo/serde@1.0.0",
+// }
+```
+
 ## Error Handling
 
 ```go
