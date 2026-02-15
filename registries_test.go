@@ -174,6 +174,25 @@ func TestIntegration(t *testing.T) {
 	}
 }
 
+func TestBuildURLs(t *testing.T) {
+	reg, err := registries.New("cargo", "", nil)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	got := registries.BuildURLs(reg.URLs(), "serde", "1.0.0")
+
+	if got["registry"] == "" {
+		t.Error("expected non-empty registry URL")
+	}
+	if got["docs"] == "" {
+		t.Error("expected non-empty docs URL")
+	}
+	if got["purl"] != "pkg:cargo/serde@1.0.0" {
+		t.Errorf("purl = %q, want %q", got["purl"], "pkg:cargo/serde@1.0.0")
+	}
+}
+
 func TestConstants(t *testing.T) {
 	// Verify constants are exported correctly
 	if registries.Runtime != "runtime" {

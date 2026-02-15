@@ -245,3 +245,22 @@ func (b *BaseURLs) PURL(name, version string) string {
 	}
 	return fmt.Sprintf("pkg:%s/%s", "generic", name)
 }
+
+// BuildURLs returns a map of all non-empty URLs for a package.
+// Keys are "registry", "download", "docs", and "purl".
+func BuildURLs(urls URLBuilder, name, version string) map[string]string {
+	result := make(map[string]string)
+	if v := urls.Registry(name, version); v != "" {
+		result["registry"] = v
+	}
+	if v := urls.Download(name, version); v != "" {
+		result["download"] = v
+	}
+	if v := urls.Documentation(name, version); v != "" {
+		result["docs"] = v
+	}
+	if v := urls.PURL(name, version); v != "" {
+		result["purl"] = v
+	}
+	return result
+}

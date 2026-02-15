@@ -135,6 +135,12 @@ func SupportedEcosystems() []string {
 	return core.SupportedEcosystems()
 }
 
+// BuildURLs returns a map of all non-empty URLs for a package.
+// Keys are "registry", "download", "docs", and "purl".
+func BuildURLs(urls URLBuilder, name, version string) map[string]string {
+	return core.BuildURLs(urls, name, version)
+}
+
 // DefaultURL returns the default registry URL for an ecosystem.
 func DefaultURL(ecosystem string) string {
 	return core.DefaultURL(ecosystem)
