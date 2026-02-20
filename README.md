@@ -1,6 +1,6 @@
 # registries
 
-Go library for fetching package metadata from registry APIs. Supports 25 ecosystems with a unified interface.
+Go library for fetching package metadata from registry APIs. Supports 25 ecosystems with a unified interface. Also provides sub-packages for HTTP client usage (`client/`) and streaming artifact downloads (`fetch/`).
 
 ## Installation
 
@@ -281,22 +281,130 @@ if err != nil {
 }
 ```
 
-## HTTP Client
+## HTTP Client (`client/`)
+
+The `client` sub-package provides an HTTP client with retry logic, error types, and URL building. You can use it through the top-level `registries` package or import it directly.
 
 The default client includes:
 
 - 30 second timeout
-- 5 retries with exponential backoff (50ms base)
+- 5 retries with exponential backoff (50ms base, 10% jitter)
 - Automatic retry on 429 and 5xx responses
 
-Custom client:
+Custom client via the top-level package:
 
 ```go
-client := registries.NewClient(
+c := registries.NewClient(
     registries.WithTimeout(60 * time.Second),
     registries.WithMaxRetries(3),
 )
-pkg, err := registries.FetchPackageFromPURL(ctx, "pkg:npm/lodash", client)
+pkg, err := registries.FetchPackageFromPURL(ctx, "pkg:npm/lodash", c)
+```
+
+Or import the sub-package directly:
+
+```go
+import "github.com/git-pkgs/registries/client"
+
+c := client.NewClient(
+    client.WithTimeout(60 * time.Second),
+    client.WithMaxRetries(3),
+)
+
+// JSON decoding
+var data map[string]any
+err := c.GetJSON(ctx, "https://registry.npmjs.org/lodash", &data)
+
+// Raw body
+body, err := c.GetBody(ctx, "https://crates.io/api/v1/crates/serde")
+
+// HEAD request
+statusCode, err := c.Head(ctx, "https://registry.npmjs.org/lodash")
+```
+
+## Artifact Downloads (`fetch/`)
+
+The `fetch` sub-package provides streaming artifact downloads with retry, circuit breaking, DNS caching, and URL resolution.
+
+### Fetching artifacts
+
+```go
+import "github.com/git-pkgs/registries/fetch"
+
+f := fetch.NewFetcher(
+    fetch.WithMaxRetries(3),
+    fetch.WithBaseDelay(500 * time.Millisecond),
+    fetch.WithUserAgent("my-app/1.0"),
+)
+
+artifact, err := f.Fetch(ctx, "https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz")
+if err != nil {
+    log.Fatal(err)
+}
+defer artifact.Body.Close()
+
+// artifact.Body is an io.ReadCloser
+// artifact.Size is the content length (-1 if unknown)
+// artifact.ContentType and artifact.ETag are also available
+io.Copy(dst, artifact.Body)
+```
+
+The fetcher uses DNS caching (5-minute refresh), connection pooling, and a 5-minute timeout suited for large artifacts. It retries on rate limits and server errors with exponential backoff and jitter.
+
+### Authentication
+
+Pass a function that returns auth headers per URL:
+
+```go
+f := fetch.NewFetcher(
+    fetch.WithAuthFunc(func(url string) (string, string) {
+        if strings.Contains(url, "npm.pkg.github.com") {
+            return "Authorization", "Bearer " + token
+        }
+        return "", ""
+    }),
+)
+```
+
+### Circuit breaker
+
+Wrap a fetcher with per-host circuit breakers to avoid hammering a failing registry. The breaker trips after 5 consecutive failures and resets with exponential backoff (30s initial, 5min max).
+
+```go
+f := fetch.NewFetcher()
+cbf := fetch.NewCircuitBreakerFetcher(f)
+
+// Same interface as Fetcher
+artifact, err := cbf.Fetch(ctx, url)
+
+// Check breaker states for health monitoring
+states := cbf.GetBreakerState()
+// map[string]string{"registry.npmjs.org": "closed", "crates.io": "open"}
+```
+
+### URL resolution
+
+The resolver maps ecosystem/name/version to download URLs and filenames. It uses each registry's `URLBuilder` when available, and falls back to hardcoded URL patterns for common ecosystems (npm, cargo, gem, golang, hex, pub, maven, nuget). For ecosystems with dynamic URLs (like PyPI), it fetches version metadata to find the download link.
+
+```go
+resolver := fetch.NewResolver()
+
+// Register a registry for URL building and metadata fallback
+reg, _ := registries.New("cargo", "", nil)
+resolver.RegisterRegistry(reg)
+
+info, err := resolver.Resolve(ctx, "cargo", "serde", "1.0.0")
+// info.URL      = "https://static.crates.io/crates/serde/serde-1.0.0.crate"
+// info.Filename = "serde-1.0.0.crate"
+// info.Integrity may be populated for metadata-resolved URLs
+```
+
+The resolver also works without a registered registry for ecosystems with predictable URL patterns:
+
+```go
+resolver := fetch.NewResolver()
+info, _ := resolver.Resolve(ctx, "npm", "lodash", "4.17.21")
+// info.URL = "https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz"
 ```
 
 ## Private Registries
