@@ -36,6 +36,7 @@ import (
 	"context"
 
 	"github.com/git-pkgs/purl"
+	"github.com/git-pkgs/registries/client"
 	"github.com/git-pkgs/registries/internal/core"
 )
 
@@ -56,20 +57,23 @@ type (
 	// Maintainer represents a package maintainer.
 	Maintainer = core.Maintainer
 
-	// Client is an HTTP client with retry logic for registry APIs.
-	Client = core.Client
-
-	// URLBuilder constructs URLs for a registry.
-	URLBuilder = core.URLBuilder
-
 	// Scope indicates when a dependency is required.
 	Scope = core.Scope
 
 	// VersionStatus represents the status of a package version.
 	VersionStatus = core.VersionStatus
+)
+
+// Re-export types from client
+type (
+	// Client is an HTTP client with retry logic for registry APIs.
+	Client = client.Client
+
+	// URLBuilder constructs URLs for a registry.
+	URLBuilder = client.URLBuilder
 
 	// RateLimiter controls request pacing.
-	RateLimiter = core.RateLimiter
+	RateLimiter = client.RateLimiter
 )
 
 // Re-export constants
@@ -88,14 +92,14 @@ const (
 
 // Re-export errors
 var (
-	ErrNotFound = core.ErrNotFound
+	ErrNotFound = client.ErrNotFound
 )
 
 // Error types
 type (
-	HTTPError     = core.HTTPError
-	NotFoundError = core.NotFoundError
-	RateLimitError = core.RateLimitError
+	HTTPError      = client.HTTPError
+	NotFoundError  = client.NotFoundError
+	RateLimitError = client.RateLimitError
 )
 
 // New creates a new registry for the given ecosystem.
@@ -103,8 +107,8 @@ type (
 // If client is nil, DefaultClient() is used.
 //
 // Supported ecosystems: "cargo", "npm", "gem", "pypi", "golang"
-func New(ecosystem string, baseURL string, client *Client) (Registry, error) {
-	return core.New(ecosystem, baseURL, client)
+func New(ecosystem string, baseURL string, c *Client) (Registry, error) {
+	return core.New(ecosystem, baseURL, c)
 }
 
 // DefaultClient returns a client with sensible defaults:
@@ -112,22 +116,22 @@ func New(ecosystem string, baseURL string, client *Client) (Registry, error) {
 // - 5 retries with exponential backoff
 // - Retry on 429 and 5xx responses
 func DefaultClient() *Client {
-	return core.DefaultClient()
+	return client.DefaultClient()
 }
 
 // NewClient creates a new client with the given options.
 func NewClient(opts ...Option) *Client {
-	return core.NewClient(opts...)
+	return client.NewClient(opts...)
 }
 
 // Option configures a Client.
-type Option = core.Option
+type Option = client.Option
 
 // WithTimeout sets the HTTP client timeout.
-var WithTimeout = core.WithTimeout
+var WithTimeout = client.WithTimeout
 
 // WithMaxRetries sets the maximum number of retries.
-var WithMaxRetries = core.WithMaxRetries
+var WithMaxRetries = client.WithMaxRetries
 
 // SupportedEcosystems returns all registered ecosystem types.
 // Note: ecosystems must be imported to be registered.
@@ -138,7 +142,7 @@ func SupportedEcosystems() []string {
 // BuildURLs returns a map of all non-empty URLs for a package.
 // Keys are "registry", "download", "docs", and "purl".
 func BuildURLs(urls URLBuilder, name, version string) map[string]string {
-	return core.BuildURLs(urls, name, version)
+	return client.BuildURLs(urls, name, version)
 }
 
 // DefaultURL returns the default registry URL for an ecosystem.
@@ -157,30 +161,30 @@ func ParsePURL(purlStr string) (*PURL, error) {
 
 // NewFromPURL creates a registry client from a PURL and returns the parsed components.
 // Returns the registry, full package name, and version (empty if not in PURL).
-func NewFromPURL(purl string, client *Client) (Registry, string, string, error) {
-	return core.NewFromPURL(purl, client)
+func NewFromPURL(purl string, c *Client) (Registry, string, string, error) {
+	return core.NewFromPURL(purl, c)
 }
 
 // FetchPackageFromPURL fetches package metadata using a PURL.
-func FetchPackageFromPURL(ctx context.Context, purl string, client *Client) (*Package, error) {
-	return core.FetchPackageFromPURL(ctx, purl, client)
+func FetchPackageFromPURL(ctx context.Context, purl string, c *Client) (*Package, error) {
+	return core.FetchPackageFromPURL(ctx, purl, c)
 }
 
 // FetchVersionFromPURL fetches a specific version's metadata using a PURL.
 // Returns an error if the PURL doesn't include a version.
-func FetchVersionFromPURL(ctx context.Context, purl string, client *Client) (*Version, error) {
-	return core.FetchVersionFromPURL(ctx, purl, client)
+func FetchVersionFromPURL(ctx context.Context, purl string, c *Client) (*Version, error) {
+	return core.FetchVersionFromPURL(ctx, purl, c)
 }
 
 // FetchDependenciesFromPURL fetches dependencies for a specific version using a PURL.
 // Returns an error if the PURL doesn't include a version.
-func FetchDependenciesFromPURL(ctx context.Context, purl string, client *Client) ([]Dependency, error) {
-	return core.FetchDependenciesFromPURL(ctx, purl, client)
+func FetchDependenciesFromPURL(ctx context.Context, purl string, c *Client) ([]Dependency, error) {
+	return core.FetchDependenciesFromPURL(ctx, purl, c)
 }
 
 // FetchMaintainersFromPURL fetches maintainer information using a PURL.
-func FetchMaintainersFromPURL(ctx context.Context, purl string, client *Client) ([]Maintainer, error) {
-	return core.FetchMaintainersFromPURL(ctx, purl, client)
+func FetchMaintainersFromPURL(ctx context.Context, purl string, c *Client) ([]Maintainer, error) {
+	return core.FetchMaintainersFromPURL(ctx, purl, c)
 }
 
 // FetchLatestVersion returns the latest non-yanked/retracted/deprecated version.
@@ -190,42 +194,42 @@ func FetchLatestVersion(ctx context.Context, reg Registry, name string) (*Versio
 }
 
 // FetchLatestVersionFromPURL returns the latest non-yanked version for a PURL.
-func FetchLatestVersionFromPURL(ctx context.Context, purl string, client *Client) (*Version, error) {
-	return core.FetchLatestVersionFromPURL(ctx, purl, client)
+func FetchLatestVersionFromPURL(ctx context.Context, purl string, c *Client) (*Version, error) {
+	return core.FetchLatestVersionFromPURL(ctx, purl, c)
 }
 
 // BulkFetchPackages fetches package metadata for multiple PURLs in parallel.
 // Individual fetch errors are silently ignored - those PURLs are omitted from results.
 // Returns a map of PURL to Package.
-func BulkFetchPackages(ctx context.Context, purls []string, client *Client) map[string]*Package {
-	return core.BulkFetchPackages(ctx, purls, client)
+func BulkFetchPackages(ctx context.Context, purls []string, c *Client) map[string]*Package {
+	return core.BulkFetchPackages(ctx, purls, c)
 }
 
 // BulkFetchPackagesWithConcurrency fetches packages with a custom concurrency limit.
-func BulkFetchPackagesWithConcurrency(ctx context.Context, purls []string, client *Client, concurrency int) map[string]*Package {
-	return core.BulkFetchPackagesWithConcurrency(ctx, purls, client, concurrency)
+func BulkFetchPackagesWithConcurrency(ctx context.Context, purls []string, c *Client, concurrency int) map[string]*Package {
+	return core.BulkFetchPackagesWithConcurrency(ctx, purls, c, concurrency)
 }
 
 // BulkFetchVersions fetches version metadata for multiple versioned PURLs in parallel.
 // PURLs without versions are silently skipped.
 // Individual fetch errors are silently ignored - those PURLs are omitted from results.
 // Returns a map of PURL to Version.
-func BulkFetchVersions(ctx context.Context, purls []string, client *Client) map[string]*Version {
-	return core.BulkFetchVersions(ctx, purls, client)
+func BulkFetchVersions(ctx context.Context, purls []string, c *Client) map[string]*Version {
+	return core.BulkFetchVersions(ctx, purls, c)
 }
 
 // BulkFetchVersionsWithConcurrency fetches versions with a custom concurrency limit.
-func BulkFetchVersionsWithConcurrency(ctx context.Context, purls []string, client *Client, concurrency int) map[string]*Version {
-	return core.BulkFetchVersionsWithConcurrency(ctx, purls, client, concurrency)
+func BulkFetchVersionsWithConcurrency(ctx context.Context, purls []string, c *Client, concurrency int) map[string]*Version {
+	return core.BulkFetchVersionsWithConcurrency(ctx, purls, c, concurrency)
 }
 
 // BulkFetchLatestVersions fetches the latest version for multiple PURLs in parallel.
 // Returns a map of PURL to the latest non-yanked Version.
-func BulkFetchLatestVersions(ctx context.Context, purls []string, client *Client) map[string]*Version {
-	return core.BulkFetchLatestVersions(ctx, purls, client)
+func BulkFetchLatestVersions(ctx context.Context, purls []string, c *Client) map[string]*Version {
+	return core.BulkFetchLatestVersions(ctx, purls, c)
 }
 
 // BulkFetchLatestVersionsWithConcurrency fetches latest versions with a custom concurrency limit.
-func BulkFetchLatestVersionsWithConcurrency(ctx context.Context, purls []string, client *Client, concurrency int) map[string]*Version {
-	return core.BulkFetchLatestVersionsWithConcurrency(ctx, purls, client, concurrency)
+func BulkFetchLatestVersionsWithConcurrency(ctx context.Context, purls []string, c *Client, concurrency int) map[string]*Version {
+	return core.BulkFetchLatestVersionsWithConcurrency(ctx, purls, c, concurrency)
 }
