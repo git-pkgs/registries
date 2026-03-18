@@ -1,0 +1,81 @@
+fetch/resolver.go
+  0f95f7d2503afe38 8,107-108,111,188
+internal/packagist/packagist.go
+  0f95f7d2503afe38 114
+internal/rubygems/rubygems.go
+  0f95f7d2503afe38 47
+internal/maven/maven.go
+  0f95f7d2503afe38 21-24,139,142,150,153
+internal/hex/hex.go
+  0f95f7d2503afe38 47
+internal/luarocks/luarocks.go
+  0f95f7d2503afe38 180
+internal/deno/deno.go
+  0f95f7d2503afe38 47
+internal/elm/elm_test.go
+  0f95f7d2503afe38 58
+internal/core/registry.go
+  0f95f7d2503afe38 51
+internal/hackage/hackage.go
+  0f95f7d2503afe38 50,174,176,182-184,191-219,238-242,248,398,431,468
+internal/elm/elm.go
+  0f95f7d2503afe38 18,49,55-56,160
+internal/pypi/pypi.go
+  0f95f7d2503afe38 287
+internal/conda/conda.go
+  0f95f7d2503afe38 102-103,252-254
+fetch/fetcher.go
+  0f95f7d2503afe38 20-36,111,120-121,126,145-148,153-154,170-171,250,255
+internal/clojars/clojars.go
+  0f95f7d2503afe38 16,90-91,171
+internal/julia/julia.go
+  0f95f7d2503afe38 104-105,191-192,279-280,303
+internal/homebrew/homebrew.go
+  0f95f7d2503afe38 47,166-167
+internal/golang/golang.go
+  0f95f7d2503afe38 10,66,116,229
+internal/core/helpers.go
+  0f95f7d2503afe38 16
+internal/cocoapods/cocoapods.go
+  0f95f7d2503afe38 46
+internal/npm/npm.go
+  0f95f7d2503afe38 283,315,332
+internal/cran/cran.go
+  0f95f7d2503afe38 158,372
+client/errors.go
+  0f95f7d2503afe38 6,25
+internal/nimble/nimble.go
+  0f95f7d2503afe38 47,195
+fetch/circuit_breaker.go
+  0f95f7d2503afe38 14-20,57-58,64,122
+client/client.go
+  0f95f7d2503afe38 15-22,41,44-45,64-65,90,93,123,129
+registries.go
+  0f95f7d2503afe38 110,164
+internal/urlparser/urlparser.go
+  0f95f7d2503afe38 119-124,127-130,143-149,198-200,285,354
+internal/terraform/terraform.go
+  0f95f7d2503afe38 54
+internal/haxelib/haxelib.go
+  0f95f7d2503afe38 47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "8fab3e705da673e23909ca9417e766cb96657093",
+  "prompts": {
+    "0f95f7d2503afe38": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b6468fb5-930e-457b-ad62-a4ebfa6b420e",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Andrew Nesbitt <andrewnez@gmail.com>",
+      "messages": [],
+      "total_additions": 229,
+      "total_deletions": 176,
+      "accepted_lines": 191,
+      "overriden_lines": 0
+    }
+  }
+}
