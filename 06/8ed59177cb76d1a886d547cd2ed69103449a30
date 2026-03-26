@@ -1,0 +1,27 @@
+fetch/circuit_breaker.go
+  23a7f31ec4bd9249 6,75-79,93
+fetch/fetcher_test.go
+  23a7f31ec4bd9249 289-356
+fetch/fetcher.go
+  23a7f31ec4bd9249 54,166-171,188,212,221-226,228
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.19",
+  "base_commit_sha": "068ed59177cb76d1a886d547cd2ed69103449a30",
+  "prompts": {
+    "23a7f31ec4bd9249": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0408e2b2-5c9d-4193-a925-b445ac90c9ec",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Andrew Nesbitt <andrewnez@gmail.com>",
+      "messages": [],
+      "total_additions": 92,
+      "total_deletions": 4,
+      "accepted_lines": 92,
+      "overriden_lines": 0
+    }
+  }
+}
