@@ -4,20 +4,21 @@ package maven
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/git-pkgs/pom"
 	"github.com/git-pkgs/registries/internal/core"
 	"github.com/git-pkgs/registries/internal/urlparser"
 )
 
 const (
-	DefaultURL     = "https://repo1.maven.org/maven2"
-	SearchURL      = "https://search.maven.org"
-	ecosystem      = "maven"
-	maxParentDepth = 5
+	DefaultURL = "https://repo1.maven.org/maven2"
+	SearchURL  = "https://search.maven.org"
+	ecosystem  = "maven"
 	// minCoordParts is the minimum number of parts in a Maven coordinate (group:artifact)
 	minCoordParts = 2
 	// coordPartsWithVersion is the number of parts when version is included (group:artifact:version)
@@ -34,6 +35,7 @@ type Registry struct {
 	baseURL   string
 	searchURL string
 	client    *core.Client
+	resolver  *pom.Resolver
 	urls      *URLs
 }
 
@@ -47,7 +49,28 @@ func New(baseURL string, client *core.Client) *Registry {
 		client:    client,
 	}
 	r.urls = &URLs{baseURL: r.baseURL}
+	r.resolver = pom.NewResolver(pom.NewCachingFetcher(&clientFetcher{client: client, baseURL: r.baseURL}))
 	return r
+}
+
+// clientFetcher adapts core.Client to pom.Fetcher so the resolver's HTTP
+// goes through the same rate limiting, retries and circuit breaker as
+// every other registry call.
+type clientFetcher struct {
+	client  *core.Client
+	baseURL string
+}
+
+func (f *clientFetcher) Fetch(ctx context.Context, gav pom.GAV) (*pom.POM, error) {
+	body, err := f.client.GetBody(ctx, pom.POMURL(f.baseURL, gav))
+	if err != nil {
+		return nil, err
+	}
+	return pom.ParsePOM(body)
+}
+
+func (r *Registry) effectivePOM(ctx context.Context, groupID, artifactID, version string) (*pom.EffectivePOM, error) {
+	return r.resolver.Resolve(ctx, pom.GAV{GroupID: groupID, ArtifactID: artifactID, Version: version}, pom.Options{})
 }
 
 func (r *Registry) Ecosystem() string {
@@ -69,58 +92,18 @@ type searchResponseBody struct {
 }
 
 type searchDoc struct {
-	ID        string `json:"id"`
-	GroupID   string `json:"g"`
-	ArtifactID string `json:"a"`
-	Version    string `json:"latestVersion"`
-	Timestamp  int64  `json:"timestamp"`
-	VersionCount int  `json:"versionCount"`
+	ID           string `json:"id"`
+	GroupID      string `json:"g"`
+	ArtifactID   string `json:"a"`
+	Version      string `json:"latestVersion"`
+	Timestamp    int64  `json:"timestamp"`
+	VersionCount int    `json:"versionCount"`
 }
 
-// POM XML structures
-type pomXML struct {
-	XMLName     xml.Name    `xml:"project"`
-	GroupID     string      `xml:"groupId"`
-	ArtifactID  string      `xml:"artifactId"`
-	Version     string      `xml:"version"`
-	Name        string      `xml:"name"`
-	Description string      `xml:"description"`
-	URL         string      `xml:"url"`
-	Licenses    []pomLicense `xml:"licenses>license"`
-	SCM         pomSCM      `xml:"scm"`
-	Parent      *pomParent  `xml:"parent"`
-	Dependencies []pomDep   `xml:"dependencies>dependency"`
-	DependencyManagement struct {
-		Dependencies []pomDep `xml:"dependencies>dependency"`
-	} `xml:"dependencyManagement"`
+// pomDevelopers is the minimal XML shape needed for FetchMaintainers; the
+// pom library doesn't carry <developers>.
+type pomDevelopers struct {
 	Developers []pomDeveloper `xml:"developers>developer"`
-	Properties map[string]string
-}
-
-type pomParent struct {
-	GroupID    string `xml:"groupId"`
-	ArtifactID string `xml:"artifactId"`
-	Version    string `xml:"version"`
-}
-
-type pomLicense struct {
-	Name string `xml:"name"`
-	URL  string `xml:"url"`
-}
-
-type pomSCM struct {
-	URL        string `xml:"url"`
-	Connection string `xml:"connection"`
-	DevConnection string `xml:"developerConnection"`
-}
-
-type pomDep struct {
-	GroupID    string `xml:"groupId"`
-	ArtifactID string `xml:"artifactId"`
-	Version    string `xml:"version"`
-	Scope      string `xml:"scope"`
-	Optional   string `xml:"optional"`
-	Type       string `xml:"type"`
 }
 
 type pomDeveloper struct {
@@ -171,8 +154,8 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 	if err := r.client.GetJSON(ctx, searchURL, &searchResp); err == nil && searchResp.Response.NumFound > 0 {
 		doc := searchResp.Response.Docs[0]
 		// Fetch the POM for more details
-		pom, _ := r.fetchPOM(ctx, groupID, artifactID, doc.Version, 0)
-		return r.packageFromSearchAndPOM(doc, pom), nil
+		ep, _ := r.effectivePOM(ctx, groupID, artifactID, doc.Version)
+		return r.packageFromSearchAndPOM(doc, ep), nil
 	}
 
 	// Fallback: try to get maven-metadata.xml
@@ -198,8 +181,8 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 		latestVersion = metadata.Versioning.Versions[len(metadata.Versioning.Versions)-1]
 	}
 
-	pom, _ := r.fetchPOM(ctx, groupID, artifactID, latestVersion, 0)
-	return r.packageFromMetadataAndPOM(metadata, pom), nil
+	ep, _ := r.effectivePOM(ctx, groupID, artifactID, latestVersion)
+	return r.packageFromMetadataAndPOM(metadata, ep), nil
 }
 
 type mavenMetadata struct {
@@ -214,62 +197,7 @@ type versioning struct {
 	Versions []string `xml:"versions>version"`
 }
 
-func (r *Registry) fetchPOM(ctx context.Context, groupID, artifactID, version string, depth int) (*pomXML, error) {
-	if depth > maxParentDepth {
-		return nil, fmt.Errorf("max parent depth exceeded")
-	}
-
-	pomURL := fmt.Sprintf("%s/%s/%s/%s/%s-%s.pom",
-		r.baseURL, groupIDToPath(groupID), artifactID, version, artifactID, version)
-
-	body, err := r.client.GetBody(ctx, pomURL)
-	if err != nil {
-		return nil, err
-	}
-
-	var pom pomXML
-	if err := xml.Unmarshal(body, &pom); err != nil {
-		return nil, err
-	}
-
-	// Resolve parent POM if present
-	if pom.Parent != nil && depth < maxParentDepth {
-		parentPOM, err := r.fetchPOM(ctx, pom.Parent.GroupID, pom.Parent.ArtifactID, pom.Parent.Version, depth+1)
-		if err == nil {
-			mergePOMs(&pom, parentPOM)
-		}
-	}
-
-	// Fill in groupID/version from parent if not set
-	if pom.GroupID == "" && pom.Parent != nil {
-		pom.GroupID = pom.Parent.GroupID
-	}
-	if pom.Version == "" && pom.Parent != nil {
-		pom.Version = pom.Parent.Version
-	}
-
-	return &pom, nil
-}
-
-func mergePOMs(child, parent *pomXML) {
-	if child.Description == "" {
-		child.Description = parent.Description
-	}
-	if child.URL == "" {
-		child.URL = parent.URL
-	}
-	if len(child.Licenses) == 0 {
-		child.Licenses = parent.Licenses
-	}
-	if child.SCM.URL == "" {
-		child.SCM = parent.SCM
-	}
-	if len(child.Developers) == 0 {
-		child.Developers = parent.Developers
-	}
-}
-
-func (r *Registry) packageFromSearchAndPOM(doc searchDoc, pom *pomXML) *core.Package {
+func (r *Registry) packageFromSearchAndPOM(doc searchDoc, ep *pom.EffectivePOM) *core.Package {
 	pkg := &core.Package{
 		Name:      fmt.Sprintf("%s:%s", doc.GroupID, doc.ArtifactID),
 		Namespace: doc.GroupID,
@@ -280,17 +208,11 @@ func (r *Registry) packageFromSearchAndPOM(doc searchDoc, pom *pomXML) *core.Pac
 		},
 	}
 
-	if pom != nil {
-		pkg.Description = pom.Description
-		pkg.Homepage = pom.URL
-		pkg.Repository = extractRepository(pom)
-		pkg.Licenses = formatLicenses(pom.Licenses)
-	}
-
+	applyPOMMetadata(pkg, ep)
 	return pkg
 }
 
-func (r *Registry) packageFromMetadataAndPOM(metadata mavenMetadata, pom *pomXML) *core.Package {
+func (r *Registry) packageFromMetadataAndPOM(metadata mavenMetadata, ep *pom.EffectivePOM) *core.Package {
 	pkg := &core.Package{
 		Name:      fmt.Sprintf("%s:%s", metadata.GroupID, metadata.ArtifactID),
 		Namespace: metadata.GroupID,
@@ -300,26 +222,22 @@ func (r *Registry) packageFromMetadataAndPOM(metadata mavenMetadata, pom *pomXML
 		},
 	}
 
-	if pom != nil {
-		pkg.Description = pom.Description
-		pkg.Homepage = pom.URL
-		pkg.Repository = extractRepository(pom)
-		pkg.Licenses = formatLicenses(pom.Licenses)
-	}
-
+	applyPOMMetadata(pkg, ep)
 	return pkg
 }
 
-func extractRepository(pom *pomXML) string {
-	return urlparser.FirstRepoURL(pom.SCM.URL, pom.SCM.Connection)
-}
-
-func formatLicenses(licenses []pomLicense) string {
-	names := make([]string, len(licenses))
-	for i, l := range licenses {
+func applyPOMMetadata(pkg *core.Package, ep *pom.EffectivePOM) {
+	if ep == nil {
+		return
+	}
+	pkg.Description = ep.Description
+	pkg.Homepage = ep.URL
+	pkg.Repository = urlparser.FirstRepoURL(ep.SCM.URL, ep.SCM.Connection)
+	names := make([]string, len(ep.Licenses))
+	for i, l := range ep.Licenses {
 		names[i] = l.Name
 	}
-	return strings.Join(names, ",")
+	pkg.Licenses = strings.Join(names, ",")
 }
 
 func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Version, error) {
@@ -381,28 +299,26 @@ func (r *Registry) FetchDependencies(ctx context.Context, name, version string) 
 		return nil, fmt.Errorf("invalid Maven coordinate: %s (expected groupId:artifactId)", name)
 	}
 
-	pom, err := r.fetchPOM(ctx, groupID, artifactID, version, 0)
+	ep, err := r.effectivePOM(ctx, groupID, artifactID, version)
 	if err != nil {
-		if httpErr, ok := err.(*core.HTTPError); ok && httpErr.IsNotFound() {
+		var httpErr *core.HTTPError
+		if errors.As(err, &httpErr) && httpErr.IsNotFound() {
 			return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name, Version: version}
 		}
 		return nil, err
 	}
 
-	var deps []core.Dependency
-	for _, d := range pom.Dependencies {
+	deps := make([]core.Dependency, 0, len(ep.Dependencies))
+	for _, d := range ep.Dependencies {
 		scope := mapMavenScope(d.Scope)
-		optional := d.Optional == "true"
-
-		if optional {
+		if d.Optional {
 			scope = core.Optional
 		}
-
 		deps = append(deps, core.Dependency{
 			Name:         fmt.Sprintf("%s:%s", d.GroupID, d.ArtifactID),
 			Requirements: d.Version,
 			Scope:        scope,
-			Optional:     optional,
+			Optional:     d.Optional,
 		})
 	}
 
@@ -440,13 +356,17 @@ func (r *Registry) FetchMaintainers(ctx context.Context, name string) ([]core.Ma
 	}
 
 	latestVersion := versions[0].Number
-	pom, err := r.fetchPOM(ctx, groupID, artifactID, latestVersion, 0)
+	body, err := r.client.GetBody(ctx, pom.POMURL(r.baseURL, pom.GAV{GroupID: groupID, ArtifactID: artifactID, Version: latestVersion}))
 	if err != nil {
 		return nil, err
 	}
+	var devs pomDevelopers
+	if err := xml.Unmarshal(body, &devs); err != nil {
+		return nil, err
+	}
 
-	maintainers := make([]core.Maintainer, len(pom.Developers))
-	for i, dev := range pom.Developers {
+	maintainers := make([]core.Maintainer, len(devs.Developers))
+	for i, dev := range devs.Developers {
 		maintainers[i] = core.Maintainer{
 			UUID:  dev.ID,
 			Login: dev.ID,
