@@ -12,10 +12,10 @@ import (
 
 func TestParseCoordinates(t *testing.T) {
 	tests := []struct {
-		input     string
-		groupID   string
+		input      string
+		groupID    string
 		artifactID string
-		version   string
+		version    string
 	}{
 		{"com.google.guava:guava", "com.google.guava", "guava", ""},
 		{"com.google.guava:guava:32.1.0", "com.google.guava", "guava", "32.1.0"},
@@ -42,10 +42,10 @@ func TestFetchPackage(t *testing.T) {
 				NumFound: 1,
 				Docs: []searchDoc{
 					{
-						ID:         "com.google.guava:guava",
-						GroupID:    "com.google.guava",
-						ArtifactID: "guava",
-						Version:    "32.1.0-jre",
+						ID:           "com.google.guava:guava",
+						GroupID:      "com.google.guava",
+						ArtifactID:   "guava",
+						Version:      "32.1.0-jre",
 						VersionCount: 150,
 					},
 				},
@@ -325,6 +325,17 @@ func TestParentPOMResolution(t *testing.T) {
   </parent>
   <artifactId>child</artifactId>
   <name>Child Project</name>
+  <dependencies>
+    <dependency>
+      <groupId>com.example</groupId>
+      <artifactId>sibling</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.lib</groupId>
+      <artifactId>lib</artifactId>
+    </dependency>
+  </dependencies>
 </project>`
 		_, _ = w.Write([]byte(pom))
 	})
@@ -346,6 +357,18 @@ func TestParentPOMResolution(t *testing.T) {
   <scm>
     <url>https://github.com/example/parent</url>
   </scm>
+  <properties>
+    <lib.version>2.5</lib.version>
+  </properties>
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.lib</groupId>
+        <artifactId>lib</artifactId>
+        <version>${lib.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
 </project>`
 		_, _ = w.Write([]byte(pom))
 	})
@@ -355,20 +378,35 @@ func TestParentPOMResolution(t *testing.T) {
 
 	reg := New(server.URL, core.DefaultClient())
 
-	pom, err := reg.fetchPOM(context.Background(), "com.example", "child", "1.0.0", 0)
+	ep, err := reg.effectivePOM(context.Background(), "com.example", "child", "1.0.0")
 	if err != nil {
-		t.Fatalf("fetchPOM failed: %v", err)
+		t.Fatalf("effectivePOM failed: %v", err)
 	}
 
 	// Should inherit from parent
-	if pom.Description != "Parent project description" {
-		t.Errorf("expected inherited description, got %q", pom.Description)
+	if ep.Description != "Parent project description" {
+		t.Errorf("expected inherited description, got %q", ep.Description)
 	}
-	if pom.GroupID != "com.example" {
-		t.Errorf("expected groupId from parent, got %q", pom.GroupID)
+	if ep.GAV.GroupID != "com.example" {
+		t.Errorf("expected groupId from parent, got %q", ep.GAV.GroupID)
 	}
-	if len(pom.Licenses) != 1 || pom.Licenses[0].Name != "MIT" {
-		t.Errorf("expected inherited license, got %v", pom.Licenses)
+	if len(ep.Licenses) != 1 || ep.Licenses[0].Name != "MIT" {
+		t.Errorf("expected inherited license, got %v", ep.Licenses)
+	}
+
+	deps, err := reg.FetchDependencies(context.Background(), "com.example:child", "1.0.0")
+	if err != nil {
+		t.Fatalf("FetchDependencies failed: %v", err)
+	}
+	got := map[string]string{}
+	for _, d := range deps {
+		got[d.Name] = d.Requirements
+	}
+	if got["com.example:sibling"] != "1.0.0" {
+		t.Errorf("expected ${project.version} interpolated to 1.0.0, got %q", got["com.example:sibling"])
+	}
+	if got["org.lib:lib"] != "2.5" {
+		t.Errorf("expected version from parent depMgmt+property, got %q", got["org.lib:lib"])
 	}
 }
 
