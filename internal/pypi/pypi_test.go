@@ -24,6 +24,7 @@ func TestFetchPackage(t *testing.T) {
 				Summary:           "Python HTTP for Humans.",
 				License:           "Apache 2.0",
 				HomePage:          "https://requests.readthedocs.io",
+				Version:           "2.31.0",
 				Keywords:          "http,web,client",
 				ProjectURLs: map[string]string{
 					"Source":        "https://github.com/psf/requests",
@@ -62,6 +63,9 @@ func TestFetchPackage(t *testing.T) {
 	}
 	if len(pkg.Keywords) != 3 {
 		t.Errorf("expected 3 keywords, got %d", len(pkg.Keywords))
+	}
+	if pkg.LatestVersion != "2.31.0" {
+		t.Errorf("expected latest version '2.31.0', got %q", pkg.LatestVersion)
 	}
 }
 

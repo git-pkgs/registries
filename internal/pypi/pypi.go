@@ -51,8 +51,8 @@ func (r *Registry) URLs() core.URLBuilder { //nolint:ireturn
 }
 
 type packageResponse struct {
-	Info     infoBlock                  `json:"info"`
-	Releases map[string][]releaseFile   `json:"releases"`
+	Info     infoBlock                `json:"info"`
+	Releases map[string][]releaseFile `json:"releases"`
 }
 
 type infoBlock struct {
@@ -71,15 +71,15 @@ type infoBlock struct {
 }
 
 type releaseFile struct {
-	Digests         map[string]string `json:"digests"`
-	URL             string            `json:"url"`
-	UploadTime      string            `json:"upload_time"`
-	Yanked          bool              `json:"yanked"`
-	YankedReason    string            `json:"yanked_reason"`
-	PackageType     string            `json:"packagetype"`
-	PythonVersion   string            `json:"python_version"`
-	RequiresPython  string            `json:"requires_python"`
-	Size            int               `json:"size"`
+	Digests        map[string]string `json:"digests"`
+	URL            string            `json:"url"`
+	UploadTime     string            `json:"upload_time"`
+	Yanked         bool              `json:"yanked"`
+	YankedReason   string            `json:"yanked_reason"`
+	PackageType    string            `json:"packagetype"`
+	PythonVersion  string            `json:"python_version"`
+	RequiresPython string            `json:"requires_python"`
+	Size           int               `json:"size"`
 }
 
 type versionInfoResponse struct {
@@ -101,16 +101,17 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 	homepage := extractHomepage(resp.Info.ProjectURLs, resp.Info.HomePage)
 
 	return &core.Package{
-		Name:        strings.ToLower(resp.Info.Name),
-		Description: resp.Info.Summary,
-		Homepage:    homepage,
-		Repository:  repoURL,
-		Licenses:    extractLicense(resp.Info),
-		Keywords:    parseKeywords(resp.Info.Keywords),
+		Name:          strings.ToLower(resp.Info.Name),
+		Description:   resp.Info.Summary,
+		Homepage:      homepage,
+		Repository:    repoURL,
+		Licenses:      extractLicense(resp.Info),
+		Keywords:      parseKeywords(resp.Info.Keywords),
+		LatestVersion: resp.Info.Version,
 		Metadata: map[string]any{
-			"classifiers":      resp.Info.Classifiers,
-			"documentation":    resp.Info.ProjectURLs["Documentation"],
-			"normalized_name":  normalizeName(resp.Info.Name),
+			"classifiers":     resp.Info.Classifiers,
+			"documentation":   resp.Info.ProjectURLs["Documentation"],
+			"normalized_name": normalizeName(resp.Info.Name),
 		},
 	}, nil
 }
