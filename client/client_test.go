@@ -11,7 +11,7 @@ import (
 func TestGetBody(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte(`{"ok":true}`))
+			_, _ = w.Write([]byte(`{"ok":true}`))
 		}))
 		defer srv.Close()
 
@@ -51,7 +51,7 @@ func TestGetBody(t *testing.T) {
 func TestGetJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"name":"test","version":"1.0"}`))
+		_, _ = w.Write([]byte(`{"name":"test","version":"1.0"}`))
 	}))
 	defer srv.Close()
 
@@ -75,7 +75,7 @@ func TestResponseSizeLimited(t *testing.T) {
 	oversized := strings.Repeat("x", maxResponseSize+1024)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(oversized))
+		_, _ = w.Write([]byte(oversized))
 	}))
 	defer srv.Close()
 
@@ -99,7 +99,7 @@ func TestResponseWithinLimit(t *testing.T) {
 	payload := `{"packages":["a","b","c"]}`
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(payload))
+		_, _ = w.Write([]byte(payload))
 	}))
 	defer srv.Close()
 
