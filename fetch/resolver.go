@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 	"unicode"
@@ -183,10 +184,26 @@ func checkMetadataURL(raw string) error {
 	if u.Scheme != "https" {
 		return fmt.Errorf("%w: scheme %q", ErrUnsafeURL, u.Scheme)
 	}
-	if u.Hostname() == "" {
+	hostname := u.Hostname()
+	if hostname == "" {
 		return fmt.Errorf("%w: empty host", ErrUnsafeURL)
 	}
+	if isPrivateHost(hostname) {
+		return fmt.Errorf("%w: private/loopback host %q", ErrUnsafeURL, hostname)
+	}
 	return nil
+}
+
+func isPrivateHost(hostname string) bool {
+	ip := net.ParseIP(hostname)
+	if ip == nil {
+		ips, err := net.LookupIP(hostname)
+		if err != nil || len(ips) == 0 {
+			return false
+		}
+		ip = ips[0]
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
 }
 
 func filenameFromURL(url string) string {

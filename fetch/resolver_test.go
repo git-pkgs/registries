@@ -141,6 +141,9 @@ func TestCheckMetadataURL(t *testing.T) {
 		{"https:///path/only", false},
 		{"//169.254.169.254/latest/meta-data/", false},
 		{"169.254.169.254/latest/meta-data/", false},
+		{"https://169.254.169.254/latest/meta-data/", false},
+		{"https://127.0.0.1/something", false},
+		{"https://[::1]/something", false},
 		{"", false},
 		{"\x00https://evil", false},
 	}
