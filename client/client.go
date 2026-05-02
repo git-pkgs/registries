@@ -18,6 +18,10 @@ const (
 	defaultBaseDelay  = 50 * time.Millisecond
 	backoffBase       = 2
 	jitterFactor      = 0.1
+
+	// maxResponseSize is the maximum response body size we will read (10 MB).
+	// Registry JSON API responses should be well under this limit.
+	maxResponseSize = 10 << 20
 )
 
 // RateLimiter controls request pacing.
@@ -115,7 +119,7 @@ func (c *Client) doRequest(ctx context.Context, url string) ([]byte, error) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return nil, err
 	}
