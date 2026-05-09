@@ -95,24 +95,39 @@ func TestFetchPackageWithGitHubRepository(t *testing.T) {
 
 func TestFetchVersions(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/catalog/xunit.2.6.0.json":
+			_ = json.NewEncoder(w).Encode(catalogLeaf{
+				PackageHash:          "ExN13Ybp8c12hwOzvHnrVJeb+I9sR2YgdHUGmIQvU3h+2AHGEU0JieFQ0c8TECX4BgZ/+6aSMAe5ea8LMLykeg==",
+				PackageHashAlgorithm: "SHA512",
+			})
+			return
+		case "/catalog/xunit.2.5.0.json":
+			w.WriteHeader(404)
+			return
+		}
+
+		base := "http://" + r.Host
 		resp := registrationResponse{
 			Items: []registrationPage{
 				{
 					Items: []registrationLeaf{
 						{
 							CatalogEntry: catalogEntry{
-								ID:        "xunit",
-								Version:   "2.6.0",
-								Published: "2023-10-15T12:00:00Z",
-								Listed:    true,
+								CatalogURL: base + "/catalog/xunit.2.6.0.json",
+								ID:         "xunit",
+								Version:    "2.6.0",
+								Published:  "2023-10-15T12:00:00Z",
+								Listed:     true,
 							},
 						},
 						{
 							CatalogEntry: catalogEntry{
-								ID:        "xunit",
-								Version:   "2.5.0",
-								Published: "2023-07-01T12:00:00Z",
-								Listed:    false,
+								CatalogURL: base + "/catalog/xunit.2.5.0.json",
+								ID:         "xunit",
+								Version:    "2.5.0",
+								Published:  "2023-07-01T12:00:00Z",
+								Listed:     false,
 							},
 						},
 						{
@@ -159,6 +174,20 @@ func TestFetchVersions(t *testing.T) {
 	}
 	if statusMap["2.4.0"] != core.StatusDeprecated {
 		t.Errorf("expected deprecated status for 2.4.0, got %q", statusMap["2.4.0"])
+	}
+
+	integrityMap := make(map[string]string)
+	for _, v := range versions {
+		integrityMap[v.Number] = v.Integrity
+	}
+	if integrityMap["2.6.0"] != "sha512-ExN13Ybp8c12hwOzvHnrVJeb+I9sR2YgdHUGmIQvU3h+2AHGEU0JieFQ0c8TECX4BgZ/+6aSMAe5ea8LMLykeg==" {
+		t.Errorf("unexpected integrity for 2.6.0: %q", integrityMap["2.6.0"])
+	}
+	if integrityMap["2.5.0"] != "" {
+		t.Errorf("expected empty integrity for 2.5.0 (catalog 404), got %q", integrityMap["2.5.0"])
+	}
+	if integrityMap["2.4.0"] != "" {
+		t.Errorf("expected empty integrity for 2.4.0 (no @id), got %q", integrityMap["2.4.0"])
 	}
 }
 
