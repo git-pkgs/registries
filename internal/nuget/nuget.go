@@ -61,6 +61,7 @@ type registrationLeaf struct {
 }
 
 type catalogEntry struct {
+	CatalogURL    string   `json:"@id"`
 	ID            string   `json:"id"`
 	Version       string   `json:"version"`
 	Description   string   `json:"description"`
@@ -90,6 +91,11 @@ type dependencyGroup struct {
 type dependency struct {
 	ID    string `json:"id"`
 	Range string `json:"range"`
+}
+
+type catalogLeaf struct {
+	PackageHash          string `json:"packageHash"`
+	PackageHashAlgorithm string `json:"packageHashAlgorithm"`
 }
 
 func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package, error) {
@@ -191,6 +197,7 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 				Number:      entry.Version,
 				PublishedAt: publishedAt,
 				Licenses:    licenses,
+				Integrity:   r.fetchIntegrity(ctx, entry.CatalogURL),
 				Status:      status,
 				Metadata: map[string]any{
 					"listed":      entry.Listed,
@@ -201,6 +208,27 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 	}
 
 	return versions, nil
+}
+
+// fetchIntegrity fetches the catalog leaf to extract the package hash.
+// The registration index does not include packageHash, only the full
+// catalog leaf does. Errors are swallowed since integrity is best-effort.
+func (r *Registry) fetchIntegrity(ctx context.Context, catalogURL string) string {
+	if catalogURL == "" {
+		return ""
+	}
+	var leaf catalogLeaf
+	if err := r.client.GetJSON(ctx, catalogURL, &leaf); err != nil {
+		return ""
+	}
+	if leaf.PackageHash == "" {
+		return ""
+	}
+	algo := strings.ToLower(leaf.PackageHashAlgorithm)
+	if algo == "" {
+		algo = "sha512"
+	}
+	return algo + "-" + leaf.PackageHash
 }
 
 func (r *Registry) FetchDependencies(ctx context.Context, name, version string) ([]core.Dependency, error) {

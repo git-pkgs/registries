@@ -55,9 +55,10 @@ type packageResponse struct {
 }
 
 type versionInfo struct {
-	Version   string    `json:"version"`
-	Published time.Time `json:"published"`
-	Pubspec   pubspec   `json:"pubspec"`
+	Version       string    `json:"version"`
+	Published     time.Time `json:"published"`
+	ArchiveSHA256 string    `json:"archive_sha256"`
+	Pubspec       pubspec   `json:"pubspec"`
 }
 
 type pubspec struct {
@@ -111,10 +112,15 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 
 	versions := make([]core.Version, len(resp.Versions))
 	for i, v := range resp.Versions {
+		var integrity string
+		if v.ArchiveSHA256 != "" {
+			integrity = "sha256-" + v.ArchiveSHA256
+		}
 		versions[i] = core.Version{
 			Number:      v.Version,
 			PublishedAt: v.Published,
 			Licenses:    v.Pubspec.License,
+			Integrity:   integrity,
 		}
 	}
 

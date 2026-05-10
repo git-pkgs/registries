@@ -59,7 +59,7 @@ func TestFetchVersions(t *testing.T) {
 		resp := packageResponse{
 			Name: "provider",
 			Versions: []versionInfo{
-				{Version: "6.1.0", Pubspec: pubspec{License: "MIT"}},
+				{Version: "6.1.0", ArchiveSHA256: "cc4fedb40b3c48d1a7558fcfe8d0f479046f017337d7b6b883208d65dbf8724d", Pubspec: pubspec{License: "MIT"}},
 				{Version: "6.0.0", Pubspec: pubspec{License: "MIT"}},
 				{Version: "5.0.0", Pubspec: pubspec{License: "MIT"}},
 			},
@@ -83,6 +83,12 @@ func TestFetchVersions(t *testing.T) {
 	}
 	if versions[0].Licenses != "MIT" {
 		t.Errorf("expected MIT license, got %q", versions[0].Licenses)
+	}
+	if versions[0].Integrity != "sha256-cc4fedb40b3c48d1a7558fcfe8d0f479046f017337d7b6b883208d65dbf8724d" {
+		t.Errorf("unexpected integrity: %q", versions[0].Integrity)
+	}
+	if versions[1].Integrity != "" {
+		t.Errorf("expected empty integrity when archive_sha256 absent, got %q", versions[1].Integrity)
 	}
 }
 

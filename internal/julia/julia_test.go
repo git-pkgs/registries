@@ -89,6 +89,9 @@ func TestFetchVersions(t *testing.T) {
 	if versions[0].Metadata["git-tree-sha1"] != "3043b8e5c7c7f4b6f6f5e3b4b4c5d6e7f8a9b0c1" {
 		t.Errorf("unexpected git-tree-sha1: %v", versions[0].Metadata["git-tree-sha1"])
 	}
+	if versions[0].Integrity != "sha1-3043b8e5c7c7f4b6f6f5e3b4b4c5d6e7f8a9b0c1" {
+		t.Errorf("unexpected integrity: %q", versions[0].Integrity)
+	}
 }
 
 func TestFetchDependencies(t *testing.T) {

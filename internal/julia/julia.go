@@ -148,8 +148,13 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 	versions := make([]core.Version, 0, len(versionNumbers))
 	for _, v := range versionNumbers {
 		info := versionMap[v]
+		var integrity string
+		if info.gitTreeSha1 != "" {
+			integrity = "sha1-" + info.gitTreeSha1
+		}
 		versions = append(versions, core.Version{
-			Number: v,
+			Number:    v,
+			Integrity: integrity,
 			Metadata: map[string]any{
 				"git-tree-sha1": info.gitTreeSha1,
 			},
