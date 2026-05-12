@@ -38,6 +38,7 @@ import (
 	"github.com/git-pkgs/purl"
 	"github.com/git-pkgs/registries/client"
 	"github.com/git-pkgs/registries/internal/core"
+	"github.com/git-pkgs/registries/internal/npm"
 )
 
 // Re-export types from internal/core
@@ -232,4 +233,33 @@ func BulkFetchLatestVersions(ctx context.Context, purls []string, c *Client) map
 // BulkFetchLatestVersionsWithConcurrency fetches latest versions with a custom concurrency limit.
 func BulkFetchLatestVersionsWithConcurrency(ctx context.Context, purls []string, c *Client, concurrency int) map[string]*Version {
 	return core.BulkFetchLatestVersionsWithConcurrency(ctx, purls, c, concurrency)
+}
+
+// npm-specific provenance metadata. Typed accessors for the
+// dist.attestations pointer and dist.signatures array that npm
+// publishes alongside a version. Consumers reading these from
+// Version.Metadata as map[string]any can use NPMProvenance to get
+// typed values without re-implementing the cast.
+
+// NPMAttestationRef mirrors npm's dist.attestations pointer published
+// alongside a version when the publisher used trusted publishing.
+type NPMAttestationRef = npm.AttestationRef
+
+// NPMSignature mirrors one entry from a version's dist.signatures
+// array — an ECDSA P-256 signature over the integrity string with
+// keyid identifying the verifying key in /-/npm/v1/keys.
+type NPMSignature = npm.Signature
+
+// NPMProvenance reads the npm-specific provenance fields from a
+// Version returned by FetchVersionFromPURL or FetchVersions. Returns
+// (nil, nil) when no provenance metadata is recorded — the registry
+// doesn't always publish either field. The signatures slice may be
+// empty even when the attestation pointer is set, and vice versa.
+func NPMProvenance(v *Version) (*NPMAttestationRef, []NPMSignature) {
+	if v == nil || v.Metadata == nil {
+		return nil, nil
+	}
+	att, _ := v.Metadata["npm:attestations"].(*NPMAttestationRef)
+	sigs, _ := v.Metadata["npm:signatures"].([]NPMSignature)
+	return att, sigs
 }

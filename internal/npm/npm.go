@@ -80,9 +80,33 @@ type versionInfo struct {
 }
 
 type distInfo struct {
-	Shasum    string `json:"shasum"`
-	Tarball   string `json:"tarball"`
-	Integrity string `json:"integrity"`
+	Shasum       string          `json:"shasum"`
+	Tarball      string          `json:"tarball"`
+	Integrity    string          `json:"integrity"`
+	Attestations *AttestationRef `json:"attestations,omitempty"`
+	Signatures   []Signature     `json:"signatures,omitempty"`
+}
+
+// AttestationRef is the npm dist.attestations pointer published
+// alongside a version when the publisher used trusted publishing.
+// The URL points at a separate endpoint that returns the signed
+// sigstore bundle(s); Provenance.PredicateType hints at the in-toto
+// predicate type living there (typically
+// https://slsa.dev/provenance/v1).
+type AttestationRef struct {
+	URL        string `json:"url"`
+	Provenance struct {
+		PredicateType string `json:"predicateType"`
+	} `json:"provenance"`
+}
+
+// Signature is one entry from a version's dist.signatures array — an
+// ECDSA P-256 signature over "{name}@{version}:{integrity}" produced
+// by the registry's signing key. Keyid identifies which key in
+// /-/npm/v1/keys to verify against.
+type Signature struct {
+	Sig   string `json:"sig"`
+	Keyid string `json:"keyid"`
 }
 
 type maintainerInfo struct {
@@ -167,11 +191,13 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 			Integrity:   integrity,
 			Status:      status,
 			Metadata: map[string]any{
-				"deprecated":   v.Deprecated,
-				"dist":         v.Dist,
-				"engines":      v.Engines,
-				"_npmUser":     v.NpmUser,
-				"tarball":      v.Dist.Tarball,
+				"deprecated":       v.Deprecated,
+				"dist":             v.Dist,
+				"engines":          v.Engines,
+				"_npmUser":         v.NpmUser,
+				"tarball":          v.Dist.Tarball,
+				"npm:attestations": v.Dist.Attestations,
+				"npm:signatures":   v.Dist.Signatures,
 			},
 		})
 	}
