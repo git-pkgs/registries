@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -375,5 +376,36 @@ func TestFetchDNSCaching(t *testing.T) {
 
 	if requestCount != 3 {
 		t.Errorf("requestCount = %d, want 3", requestCount)
+	}
+}
+
+func TestFetcherHonorsProxyEnvironment(t *testing.T) {
+	f := NewFetcher()
+	defer func() { _ = f.Close() }()
+
+	transport, ok := f.client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("Transport = %T, want *http.Transport", f.client.Transport)
+	}
+	if transport.Proxy == nil {
+		t.Fatal("Transport.Proxy is nil; HTTP_PROXY/HTTPS_PROXY/NO_PROXY env vars would be ignored")
+	}
+	want := reflect.ValueOf(http.ProxyFromEnvironment).Pointer()
+	got := reflect.ValueOf(transport.Proxy).Pointer()
+	if got != want {
+		t.Errorf("Transport.Proxy is not http.ProxyFromEnvironment")
+	}
+	if transport.ResponseHeaderTimeout == 0 {
+		t.Error("Transport.ResponseHeaderTimeout is 0; hung upstreams will only fail at the overall client timeout")
+	}
+}
+
+func TestFetcherCloseStopsGoroutine(t *testing.T) {
+	f := NewFetcher()
+	if err := f.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Errorf("second Close returned error: %v", err)
 	}
 }
