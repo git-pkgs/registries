@@ -217,3 +217,27 @@ func NewClient(opts ...Option) *Client {
 	}
 	return c
 }
+
+// WithHTTPClient swaps in a caller-supplied *http.Client. Use this
+// when the application has its own connection pool, mTLS config, or
+// auth-injecting transport that other Options like WithTimeout can't
+// express. The supplied client's Timeout, Jar, and Transport are
+// preserved as-is.
+func WithHTTPClient(h *http.Client) Option {
+	return func(c *Client) {
+		c.HTTPClient = h
+	}
+}
+
+// WithTransport replaces the underlying http.RoundTripper without
+// touching the Client's other settings (timeout, jar, etc.). Useful
+// for wrapping the transport in middleware (auth, logging, retry,
+// rate-limit) while keeping the rest of the configured shape intact.
+func WithTransport(rt http.RoundTripper) Option {
+	return func(c *Client) {
+		if c.HTTPClient == nil {
+			c.HTTPClient = &http.Client{Timeout: defaultTimeout}
+		}
+		c.HTTPClient.Transport = rt
+	}
+}
