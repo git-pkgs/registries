@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/rs/dnscache"
+
+	"github.com/git-pkgs/registries/safehttp"
 )
 
 const (
@@ -143,13 +145,24 @@ func NewFetcher(opts ...Option) *Fetcher {
 					if err != nil {
 						return nil, err
 					}
+					// Gate every resolved IP against the safehttp block
+					// list (loopback, RFC1918, CGNAT, link-local, ...)
+					// before dialing. The dial is to the resolved IP
+					// directly so a rebind between gate and connect
+					// cannot escape.
 					var lastErr error
 					for _, ip := range ips {
-						conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip, port))
-						if err == nil {
+						if parsed := net.ParseIP(ip); parsed != nil {
+							if err := safehttp.CheckIP(parsed, safehttp.Options{}); err != nil {
+								lastErr = err
+								continue
+							}
+						}
+						conn, derr := dialer.DialContext(ctx, network, net.JoinHostPort(ip, port))
+						if derr == nil {
 							return conn, nil
 						}
-						lastErr = err
+						lastErr = derr
 					}
 					if lastErr == nil {
 						return nil, fmt.Errorf("no IPs resolved for %s", host)
