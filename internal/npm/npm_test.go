@@ -63,6 +63,105 @@ func TestFetchPackage(t *testing.T) {
 	}
 }
 
+// TestFetchVersions_Provenance asserts the dist.attestations pointer
+// and dist.signatures slice round-trip into Version.Metadata as the
+// typed AttestationRef and []Signature shapes.
+func TestFetchVersions_Provenance(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		resp := map[string]interface{}{
+			"_id":       "demo",
+			"name":      "demo",
+			"dist-tags": map[string]string{"latest": "1.0.0"},
+			"versions": map[string]interface{}{
+				"1.0.0": map[string]interface{}{
+					"name":    "demo",
+					"version": "1.0.0",
+					"license": "MIT",
+					"dist": map[string]interface{}{
+						"integrity": "sha512-deadbeef",
+						"tarball":   "https://example.invalid/demo-1.0.0.tgz",
+						"attestations": map[string]interface{}{
+							"url": "https://registry.example.invalid/-/npm/v1/attestations/demo@1.0.0",
+							"provenance": map[string]string{
+								"predicateType": "https://slsa.dev/provenance/v1",
+							},
+						},
+						"signatures": []map[string]string{
+							{"sig": "MEUCIabc==", "keyid": "SHA256:jl3bwswu80PjjokCgh0o2w5c2U4LhQAE57gj9cz1kzA"},
+						},
+					},
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	reg := New(server.URL, core.DefaultClient())
+	versions, err := reg.FetchVersions(context.Background(), "demo")
+	if err != nil {
+		t.Fatalf("FetchVersions: %v", err)
+	}
+	if len(versions) != 1 {
+		t.Fatalf("versions = %d, want 1", len(versions))
+	}
+
+	v := versions[0]
+	att, ok := v.Metadata["npm:attestations"].(*AttestationRef)
+	if !ok || att == nil {
+		t.Fatalf("Metadata[npm:attestations] not a *AttestationRef: %T", v.Metadata["npm:attestations"])
+	}
+	if att.URL != "https://registry.example.invalid/-/npm/v1/attestations/demo@1.0.0" {
+		t.Errorf("attestation URL = %q", att.URL)
+	}
+	if att.Provenance.PredicateType != "https://slsa.dev/provenance/v1" {
+		t.Errorf("attestation predicate type = %q", att.Provenance.PredicateType)
+	}
+
+	sigs, ok := v.Metadata["npm:signatures"].([]Signature)
+	if !ok {
+		t.Fatalf("Metadata[npm:signatures] not a []Signature: %T", v.Metadata["npm:signatures"])
+	}
+	if len(sigs) != 1 || sigs[0].Sig != "MEUCIabc==" {
+		t.Errorf("signatures = %+v", sigs)
+	}
+}
+
+// TestFetchVersions_NoProvenance asserts that versions without
+// dist.attestations / dist.signatures expose nil and (typed) nil
+// slice without panic.
+func TestFetchVersions_NoProvenance(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		resp := map[string]interface{}{
+			"_id":       "plain",
+			"name":      "plain",
+			"dist-tags": map[string]string{"latest": "1.0.0"},
+			"versions": map[string]interface{}{
+				"1.0.0": map[string]interface{}{
+					"name":    "plain",
+					"version": "1.0.0",
+					"dist":    map[string]interface{}{"integrity": "sha512-xxx", "tarball": "https://example.invalid/plain-1.0.0.tgz"},
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	reg := New(server.URL, core.DefaultClient())
+	versions, err := reg.FetchVersions(context.Background(), "plain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if att, _ := versions[0].Metadata["npm:attestations"].(*AttestationRef); att != nil {
+		t.Errorf("expected nil attestation, got %+v", att)
+	}
+	if sigs, _ := versions[0].Metadata["npm:signatures"].([]Signature); len(sigs) != 0 {
+		t.Errorf("expected empty signatures, got %+v", sigs)
+	}
+}
+
 func TestFetchPackageScoped(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Path can be encoded in different ways depending on the URL library
