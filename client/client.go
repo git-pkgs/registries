@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/git-pkgs/registries/safehttp"
 )
 
 const (
@@ -239,5 +241,20 @@ func WithTransport(rt http.RoundTripper) Option {
 			c.HTTPClient = &http.Client{Timeout: defaultTimeout}
 		}
 		c.HTTPClient.Transport = rt
+	}
+}
+
+// WithSafeHTTP wraps the client's underlying *http.Client with the
+// safehttp transport: dial-time IP gate (rejects loopback, RFC1918,
+// CGNAT, link-local, multicast, unspecified), redirect chain capped
+// at 10, non-http(s) schemes rejected on redirect. DNS is resolved at
+// dial time and the connection dials the resolved IP directly so a
+// rebind between resolve and connect cannot escape the gate. Suitable
+// for any code path that fetches from URLs an attacker might control
+// (a malicious registry response, a manifest-supplied URL, a redirect
+// target).
+func WithSafeHTTP() Option {
+	return func(c *Client) {
+		c.HTTPClient = safehttp.New(c.HTTPClient, safehttp.Options{})
 	}
 }
