@@ -2,3 +2,6 @@ version: "2"
 linters:
   disable:
     - unused
+  settings:
+    goconst:
+      ignore-tests: true
