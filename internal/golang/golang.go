@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 	"unicode"
@@ -15,7 +16,10 @@ import (
 
 const (
 	DefaultURL = "https://proxy.golang.org"
+	pkgsiteAPI = "https://pkg.go.dev/v1beta"
 	ecosystem  = "golang"
+
+	pkgsitePageLimit = 500
 )
 
 func init() {
@@ -25,9 +29,10 @@ func init() {
 }
 
 type Registry struct {
-	baseURL string
-	client  *core.Client
-	urls    *URLs
+	baseURL    string
+	pkgsiteURL string
+	client     *core.Client
+	urls       *URLs
 }
 
 func New(baseURL string, client *core.Client) *Registry {
@@ -37,6 +42,11 @@ func New(baseURL string, client *core.Client) *Registry {
 	r := &Registry{
 		baseURL: strings.TrimSuffix(baseURL, "/"),
 		client:  client,
+	}
+	// The pkgsite API only covers modules visible on pkg.go.dev. When pointed
+	// at a private proxy we fall back to the goproxy protocol exclusively.
+	if r.baseURL == DefaultURL {
+		r.pkgsiteURL = pkgsiteAPI
 	}
 	r.urls = &URLs{baseURL: r.baseURL}
 	return r
@@ -53,6 +63,29 @@ func (r *Registry) URLs() core.URLBuilder { //nolint:ireturn
 type versionInfo struct {
 	Version string    `json:"Version"`
 	Time    time.Time `json:"Time"`
+}
+
+type pkgsiteLicense struct {
+	Types []string `json:"types"`
+}
+
+type pkgsiteModule struct {
+	Path     string           `json:"path"`
+	Version  string           `json:"version"`
+	RepoURL  string           `json:"repoUrl"`
+	Licenses []pkgsiteLicense `json:"licenses"`
+}
+
+type pkgsiteVersion struct {
+	Version    string    `json:"version"`
+	CommitTime time.Time `json:"commitTime"`
+	Deprecated bool      `json:"deprecated"`
+	Retracted  bool      `json:"retracted"`
+}
+
+type pkgsiteVersions struct {
+	Items         []pkgsiteVersion `json:"items"`
+	NextPageToken string           `json:"nextPageToken"`
 }
 
 // encodeForProxy encodes a module path according to the goproxy protocol.
@@ -72,13 +105,56 @@ func encodeForProxy(path string) string {
 }
 
 func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package, error) {
+	if r.pkgsiteURL != "" {
+		if pkg, err := r.fetchPackagePkgsite(ctx, name); err == nil {
+			return pkg, nil
+		}
+		// Any pkgsite failure (including 404, since pkg.go.dev can lag the
+		// proxy) falls through to the goproxy protocol.
+	}
+	return r.fetchPackageProxy(ctx, name)
+}
+
+func (r *Registry) fetchPackagePkgsite(ctx context.Context, name string) (*core.Package, error) {
+	moduleURL := fmt.Sprintf("%s/module/%s?licenses=true", r.pkgsiteURL, name)
+
+	var mod pkgsiteModule
+	if err := r.client.GetJSON(ctx, moduleURL, &mod); err != nil {
+		return nil, err
+	}
+
+	repoURL := urlparser.Parse(mod.RepoURL)
+	if repoURL == "" {
+		// pkgsite already returns a validated URL; keep it even if urlparser
+		// doesn't recognise the host (e.g. go.googlesource.com, gitea instances).
+		repoURL = mod.RepoURL
+	}
+	if repoURL == "" {
+		repoURL = urlparser.Parse(deriveRepoURL(name))
+	}
+
+	var types []string
+	for _, l := range mod.Licenses {
+		types = append(types, l.Types...)
+	}
+
+	return &core.Package{
+		Name:          name,
+		Repository:    repoURL,
+		Homepage:      repoURL,
+		Namespace:     namespaceFor(name),
+		Licenses:      strings.Join(types, ", "),
+		LatestVersion: mod.Version,
+	}, nil
+}
+
+func (r *Registry) fetchPackageProxy(ctx context.Context, name string) (*core.Package, error) {
 	encoded := encodeForProxy(name)
 
-	// Try to get the version list first to verify the module exists
 	listURL := fmt.Sprintf("%s/%s/@v/list", r.baseURL, encoded)
 	body, err := r.client.GetText(ctx, listURL)
 	if err != nil {
-		if httpErr, ok := err.(*core.HTTPError); ok && httpErr.IsNotFound() {
+		if isNotFound(err) {
 			return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name}
 		}
 		return nil, err
@@ -88,22 +164,26 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 		return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name}
 	}
 
-	// Go modules don't have rich metadata in the proxy protocol
-	// The repository URL is typically derived from the module path
 	repoURL := urlparser.Parse(deriveRepoURL(name))
-
-	parts := strings.Split(name, "/")
-	namespace := ""
-	if len(parts) > 1 {
-		namespace = strings.Join(parts[:len(parts)-1], "/")
-	}
 
 	return &core.Package{
 		Name:       name,
 		Repository: repoURL,
 		Homepage:   repoURL,
-		Namespace:  namespace,
+		Namespace:  namespaceFor(name),
 	}, nil
+}
+
+func namespaceFor(name string) string {
+	if i := strings.LastIndex(name, "/"); i > 0 {
+		return name[:i]
+	}
+	return ""
+}
+
+func isNotFound(err error) bool {
+	httpErr, ok := err.(*core.HTTPError)
+	return ok && httpErr.IsNotFound()
 }
 
 func deriveRepoURL(modulePath string) string {
@@ -122,12 +202,61 @@ func deriveRepoURL(modulePath string) string {
 }
 
 func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Version, error) {
+	if r.pkgsiteURL != "" {
+		if versions, err := r.fetchVersionsPkgsite(ctx, name); err == nil {
+			return versions, nil
+		}
+	}
+	return r.fetchVersionsProxy(ctx, name)
+}
+
+func (r *Registry) fetchVersionsPkgsite(ctx context.Context, name string) ([]core.Version, error) {
+	var versions []core.Version
+	token := ""
+
+	for {
+		q := url.Values{"limit": {fmt.Sprint(pkgsitePageLimit)}}
+		if token != "" {
+			q.Set("token", token)
+		}
+		pageURL := fmt.Sprintf("%s/versions/%s?%s", r.pkgsiteURL, name, q.Encode())
+
+		var page pkgsiteVersions
+		if err := r.client.GetJSON(ctx, pageURL, &page); err != nil {
+			return nil, err
+		}
+
+		for _, v := range page.Items {
+			status := core.StatusNone
+			switch {
+			case v.Retracted:
+				status = core.StatusRetracted
+			case v.Deprecated:
+				status = core.StatusDeprecated
+			}
+			versions = append(versions, core.Version{
+				Number:      v.Version,
+				PublishedAt: v.CommitTime,
+				Status:      status,
+			})
+		}
+
+		if page.NextPageToken == "" {
+			break
+		}
+		token = page.NextPageToken
+	}
+
+	return versions, nil
+}
+
+func (r *Registry) fetchVersionsProxy(ctx context.Context, name string) ([]core.Version, error) {
 	encoded := encodeForProxy(name)
 	listURL := fmt.Sprintf("%s/%s/@v/list", r.baseURL, encoded)
 
 	body, err := r.client.GetText(ctx, listURL)
 	if err != nil {
-		if httpErr, ok := err.(*core.HTTPError); ok && httpErr.IsNotFound() {
+		if isNotFound(err) {
 			return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name}
 		}
 		return nil, err
@@ -167,7 +296,7 @@ func (r *Registry) FetchDependencies(ctx context.Context, name, version string) 
 
 	body, err := r.client.GetText(ctx, modURL)
 	if err != nil {
-		if httpErr, ok := err.(*core.HTTPError); ok && httpErr.IsNotFound() {
+		if isNotFound(err) {
 			return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name, Version: version}
 		}
 		return nil, err

@@ -38,6 +38,76 @@ func TestFetchPackage(t *testing.T) {
 	}
 }
 
+func TestFetchPackagePkgsite(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/module/golang.org/x/sync" {
+			w.WriteHeader(404)
+			return
+		}
+		if r.URL.Query().Get("licenses") != "true" {
+			t.Errorf("expected licenses=true query param")
+		}
+		_ = json.NewEncoder(w).Encode(pkgsiteModule{
+			Path:    "golang.org/x/sync",
+			Version: "v0.7.0",
+			RepoURL: "https://go.googlesource.com/sync",
+			Licenses: []pkgsiteLicense{
+				{Types: []string{"BSD-3-Clause"}},
+			},
+		})
+	}))
+	defer server.Close()
+
+	reg := New("", core.DefaultClient())
+	reg.pkgsiteURL = server.URL
+
+	pkg, err := reg.FetchPackage(context.Background(), "golang.org/x/sync")
+	if err != nil {
+		t.Fatalf("FetchPackage failed: %v", err)
+	}
+
+	if pkg.Repository != "https://go.googlesource.com/sync" {
+		t.Errorf("unexpected repository: %q", pkg.Repository)
+	}
+	if pkg.Licenses != "BSD-3-Clause" {
+		t.Errorf("unexpected licenses: %q", pkg.Licenses)
+	}
+	if pkg.LatestVersion != "v0.7.0" {
+		t.Errorf("unexpected latest version: %q", pkg.LatestVersion)
+	}
+	if pkg.Namespace != "golang.org/x" {
+		t.Errorf("unexpected namespace: %q", pkg.Namespace)
+	}
+}
+
+func TestFetchPackagePkgsiteFallback(t *testing.T) {
+	// pkgsite returns 500, proxy succeeds
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/github.com/gorilla/mux/@v/list" {
+			_, _ = w.Write([]byte("v1.8.0\n"))
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer proxy.Close()
+
+	pkgsite := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+	}))
+	defer pkgsite.Close()
+
+	reg := New(proxy.URL, core.NewClient(core.WithMaxRetries(0)))
+	reg.pkgsiteURL = pkgsite.URL
+
+	pkg, err := reg.FetchPackage(context.Background(), "github.com/gorilla/mux")
+	if err != nil {
+		t.Fatalf("FetchPackage should fall back to proxy: %v", err)
+	}
+	if pkg.Repository != "https://github.com/gorilla/mux" {
+		t.Errorf("unexpected repository: %q", pkg.Repository)
+	}
+}
+
 func TestFetchPackageNotFound(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
@@ -84,6 +154,94 @@ func TestFetchVersions(t *testing.T) {
 
 	if len(versions) != 2 {
 		t.Fatalf("expected 2 versions, got %d", len(versions))
+	}
+}
+
+func TestFetchVersionsPkgsite(t *testing.T) {
+	page1 := pkgsiteVersions{
+		Items: []pkgsiteVersion{
+			{Version: "v1.2.0", CommitTime: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)},
+			{Version: "v1.1.0", CommitTime: time.Date(2023, 6, 1, 0, 0, 0, 0, time.UTC), Retracted: true},
+		},
+		NextPageToken: "abc",
+	}
+	page2 := pkgsiteVersions{
+		Items: []pkgsiteVersion{
+			{Version: "v1.0.0", CommitTime: time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC), Deprecated: true},
+		},
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/versions/example.com/mod" {
+			w.WriteHeader(404)
+			return
+		}
+		if r.URL.Query().Get("token") == "abc" {
+			_ = json.NewEncoder(w).Encode(page2)
+		} else {
+			_ = json.NewEncoder(w).Encode(page1)
+		}
+	}))
+	defer server.Close()
+
+	reg := New("", core.DefaultClient())
+	reg.pkgsiteURL = server.URL
+
+	versions, err := reg.FetchVersions(context.Background(), "example.com/mod")
+	if err != nil {
+		t.Fatalf("FetchVersions failed: %v", err)
+	}
+
+	if len(versions) != 3 {
+		t.Fatalf("expected 3 versions across 2 pages, got %d", len(versions))
+	}
+	if versions[0].Number != "v1.2.0" || versions[0].Status != core.StatusNone {
+		t.Errorf("unexpected version[0]: %+v", versions[0])
+	}
+	if versions[1].Number != "v1.1.0" || versions[1].Status != core.StatusRetracted {
+		t.Errorf("expected v1.1.0 retracted, got %+v", versions[1])
+	}
+	if versions[2].Number != "v1.0.0" || versions[2].Status != core.StatusDeprecated {
+		t.Errorf("expected v1.0.0 deprecated, got %+v", versions[2])
+	}
+	if versions[0].PublishedAt.Year() != 2024 {
+		t.Errorf("expected commitTime to populate PublishedAt, got %v", versions[0].PublishedAt)
+	}
+}
+
+func TestFetchVersionsPkgsiteNotFoundFallsThrough(t *testing.T) {
+	pkgsite := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(404)
+		_, _ = w.Write([]byte(`{"code":404,"message":"not found"}`))
+	}))
+	defer pkgsite.Close()
+
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/example.com/fresh/@v/list":
+			_, _ = w.Write([]byte("v0.1.0\n"))
+		case "/example.com/fresh/@v/v0.1.0.info":
+			_ = json.NewEncoder(w).Encode(versionInfo{Version: "v0.1.0"})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer proxy.Close()
+
+	reg := New(proxy.URL, core.DefaultClient())
+	reg.pkgsiteURL = pkgsite.URL
+
+	versions, err := reg.FetchVersions(context.Background(), "example.com/fresh")
+	if err != nil {
+		t.Fatalf("expected fallthrough to proxy on pkgsite 404: %v", err)
+	}
+	if len(versions) != 1 || versions[0].Number != "v0.1.0" {
+		t.Errorf("expected proxy version v0.1.0, got %+v", versions)
+	}
+
+	_, err = reg.FetchVersions(context.Background(), "example.com/missing")
+	if _, ok := err.(*core.NotFoundError); !ok {
+		t.Errorf("expected NotFoundError from proxy, got %T: %v", err, err)
 	}
 }
 
