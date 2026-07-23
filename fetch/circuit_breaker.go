@@ -2,6 +2,7 @@ package fetch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -88,9 +89,12 @@ func (cbf *CircuitBreakerFetcher) FetchWithHeaders(ctx context.Context, fetchURL
 
 	// Attempt fetch
 	var artifact *Artifact
+	var fetchErr error
 	err := breaker.Call(func() error {
-		var fetchErr error
 		artifact, fetchErr = cbf.fetcher.FetchWithHeaders(ctx, fetchURL, headers)
+		if errors.Is(fetchErr, ErrNotFound) {
+			return nil
+		}
 		return fetchErr
 	}, 0)
 
@@ -98,7 +102,7 @@ func (cbf *CircuitBreakerFetcher) FetchWithHeaders(ctx context.Context, fetchURL
 		return nil, err
 	}
 
-	return artifact, nil
+	return artifact, fetchErr
 }
 
 // Head wraps the underlying fetcher's Head with circuit breaker logic.
@@ -110,13 +114,19 @@ func (cbf *CircuitBreakerFetcher) Head(ctx context.Context, headURL string) (siz
 		return 0, "", fmt.Errorf("circuit breaker open for registry %s: %w", registry, ErrUpstreamDown)
 	}
 
+	var headErr error
 	err = breaker.Call(func() error {
-		var headErr error
 		size, contentType, headErr = cbf.fetcher.Head(ctx, headURL)
+		if errors.Is(headErr, ErrNotFound) {
+			return nil
+		}
 		return headErr
 	}, 0)
 
-	return size, contentType, err
+	if err != nil {
+		return 0, "", err
+	}
+	return size, contentType, headErr
 }
 
 // extractRegistry extracts a registry identifier from a URL for circuit breaker grouping.
