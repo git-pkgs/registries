@@ -75,7 +75,7 @@ type versionInfo struct {
 	Dist         distInfo               `json:"dist"`
 	Maintainers  []maintainerInfo       `json:"maintainers"`
 	NpmUser      map[string]interface{} `json:"_npmUser"`
-	Engines      map[string]string      `json:"engines"`
+	Engines      interface{}            `json:"engines"`
 	Funding      interface{}            `json:"funding"`
 }
 
