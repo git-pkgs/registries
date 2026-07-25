@@ -2,7 +2,9 @@
 package npm
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -71,12 +73,50 @@ type versionInfo struct {
 	Dependencies map[string]string      `json:"dependencies"`
 	DevDeps      map[string]string      `json:"devDependencies"`
 	OptionalDeps map[string]string      `json:"optionalDependencies"`
-	Deprecated   string                 `json:"deprecated"`
+	Deprecated   deprecatedField        `json:"deprecated"`
 	Dist         distInfo               `json:"dist"`
 	Maintainers  []maintainerInfo       `json:"maintainers"`
 	NpmUser      map[string]interface{} `json:"_npmUser"`
 	Engines      interface{}            `json:"engines"`
 	Funding      interface{}            `json:"funding"`
+}
+
+// deprecatedField is the npm version "deprecated" field, which the packument
+// spec defines as a string carrying the deprecation message. In practice some
+// packuments emit a boolean instead (false meaning "not deprecated", true
+// meaning deprecated with no message), which the registry historically
+// accepted. UnmarshalJSON normalizes both shapes to the string form the rest
+// of the code relies on: any non-empty value marks the version deprecated.
+type deprecatedField string
+
+// UnmarshalJSON accepts a string (the deprecation message), a boolean, or
+// null/empty. Strings are kept verbatim; booleans map to "true" (deprecated)
+// or "" (not deprecated) so the non-empty check driving StatusDeprecated keeps
+// working.
+func (d *deprecatedField) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		*d = ""
+		return nil
+	}
+	if trimmed[0] == '"' {
+		var s string
+		if err := json.Unmarshal(trimmed, &s); err != nil {
+			return err
+		}
+		*d = deprecatedField(s)
+		return nil
+	}
+	var b bool
+	if err := json.Unmarshal(trimmed, &b); err != nil {
+		return err
+	}
+	if b {
+		*d = "true"
+		return nil
+	}
+	*d = ""
+	return nil
 }
 
 type distInfo struct {
@@ -191,7 +231,7 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 			Integrity:   integrity,
 			Status:      status,
 			Metadata: map[string]any{
-				"deprecated":       v.Deprecated,
+				"deprecated":       string(v.Deprecated),
 				"dist":             v.Dist,
 				"engines":          v.Engines,
 				"_npmUser":         v.NpmUser,

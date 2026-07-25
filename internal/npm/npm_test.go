@@ -225,6 +225,86 @@ func TestFetchVersions_LegacyEnginesArray(t *testing.T) {
 	}
 }
 
+// TestFetchVersions_DeprecatedShapes verifies that the "deprecated" field is
+// handled across the shapes npm packuments emit: absent/null, a string
+// message, and the legacy boolean form (false == not deprecated,
+// true == deprecated with no message). String and true values must mark the
+// version StatusDeprecated; absent/null/false must leave it active.
+func TestFetchVersions_DeprecatedShapes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		resp := map[string]interface{}{
+			"_id":       "shapes",
+			"name":      "shapes",
+			"dist-tags": map[string]string{"latest": "1.3.0"},
+			"versions": map[string]interface{}{
+				"1.0.0": map[string]interface{}{ // absent
+					"name": "shapes", "version": "1.0.0",
+					"dist": map[string]interface{}{"integrity": "sha512-a"},
+				},
+				"1.1.0": map[string]interface{}{ // string message
+					"name": "shapes", "version": "1.1.0",
+					"deprecated": "use v2 instead",
+					"dist":       map[string]interface{}{"integrity": "sha512-b"},
+				},
+				"1.2.0": map[string]interface{}{ // boolean false
+					"name": "shapes", "version": "1.2.0",
+					"deprecated": false,
+					"dist":       map[string]interface{}{"integrity": "sha512-c"},
+				},
+				"1.3.0": map[string]interface{}{ // boolean true
+					"name": "shapes", "version": "1.3.0",
+					"deprecated": true,
+					"dist":       map[string]interface{}{"integrity": "sha512-d"},
+				},
+			},
+			"time": map[string]string{
+				"1.0.0": "2020-01-01T00:00:00.000Z",
+				"1.1.0": "2020-02-01T00:00:00.000Z",
+				"1.2.0": "2020-03-01T00:00:00.000Z",
+				"1.3.0": "2020-04-01T00:00:00.000Z",
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	reg := New(server.URL, core.DefaultClient())
+	versions, err := reg.FetchVersions(context.Background(), "shapes")
+	if err != nil {
+		t.Fatalf("FetchVersions failed: %v", err)
+	}
+
+	wantStatus := map[string]core.VersionStatus{
+		"1.0.0": core.StatusNone,
+		"1.1.0": core.StatusDeprecated,
+		"1.2.0": core.StatusNone, // boolean false is not deprecated
+		"1.3.0": core.StatusDeprecated,
+	}
+	wantDep := map[string]string{
+		"1.0.0": "",
+		"1.1.0": "use v2 instead",
+		"1.2.0": "",
+		"1.3.0": "true",
+	}
+
+	byNumber := map[string]core.Version{}
+	for _, v := range versions {
+		byNumber[v.Number] = v
+	}
+	for _, num := range []string{"1.0.0", "1.1.0", "1.2.0", "1.3.0"} {
+		v, ok := byNumber[num]
+		if !ok {
+			t.Fatalf("missing version %s", num)
+		}
+		if v.Status != wantStatus[num] {
+			t.Errorf("%s status = %q, want %q", num, v.Status, wantStatus[num])
+		}
+		if v.Metadata["deprecated"] != wantDep[num] {
+			t.Errorf("%s deprecated metadata = %q, want %q", num, v.Metadata["deprecated"], wantDep[num])
+		}
+	}
+}
+
 func TestFetchPackageScoped(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Path can be encoded in different ways depending on the URL library
