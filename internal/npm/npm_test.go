@@ -162,6 +162,69 @@ func TestFetchVersions_NoProvenance(t *testing.T) {
 	}
 }
 
+// TestFetchVersions_LegacyEnginesArray verifies that versions whose
+// "engines" field is a legacy array (e.g. ["node","rhino"], as published
+// by early lodash 0.x releases) are parsed without error. The struct field
+// must accept both the modern object form and the legacy array form.
+func TestFetchVersions_LegacyEnginesArray(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		resp := map[string]interface{}{
+			"_id":       "legacy",
+			"name":      "legacy",
+			"dist-tags": map[string]string{"latest": "0.1.0"},
+			"versions": map[string]interface{}{
+				"0.1.0": map[string]interface{}{
+					"name":    "legacy",
+					"version": "0.1.0",
+					"license": "MIT",
+					"engines": []string{"node", "rhino"}, // legacy array form
+					"dist":    map[string]interface{}{"integrity": "sha512-legacy"},
+				},
+				"1.0.0": map[string]interface{}{
+					"name":    "legacy",
+					"version": "1.0.0",
+					"engines": map[string]string{"node": ">=10"}, // modern object form
+					"dist":    map[string]interface{}{"integrity": "sha512-modern"},
+				},
+			},
+			"time": map[string]string{
+				"0.1.0": "2012-01-01T00:00:00.000Z",
+				"1.0.0": "2020-01-01T00:00:00.000Z",
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	reg := New(server.URL, core.DefaultClient())
+	versions, err := reg.FetchVersions(context.Background(), "legacy")
+	if err != nil {
+		t.Fatalf("FetchVersions with legacy engines array failed: %v", err)
+	}
+	if len(versions) != 2 {
+		t.Fatalf("versions = %d, want 2", len(versions))
+	}
+
+	byVersion := map[string]map[string]interface{}{}
+	for _, v := range versions {
+		byVersion[v.Number] = v.Metadata
+	}
+
+	// Legacy array form should round-trip as a []interface{}.
+	if engines, ok := byVersion["0.1.0"]["engines"].([]interface{}); !ok {
+		t.Errorf("0.1.0 engines = %T, want []interface{}", byVersion["0.1.0"]["engines"])
+	} else if len(engines) != 2 || engines[0] != "node" || engines[1] != "rhino" {
+		t.Errorf("0.1.0 engines = %+v, want [node rhino]", engines)
+	}
+
+	// Modern object form should round-trip as a map[string]interface{}.
+	if engines, ok := byVersion["1.0.0"]["engines"].(map[string]interface{}); !ok {
+		t.Errorf("1.0.0 engines = %T, want map[string]interface{}", byVersion["1.0.0"]["engines"])
+	} else if engines["node"] != ">=10" {
+		t.Errorf("1.0.0 engines = %+v, want {node:>=10}", engines)
+	}
+}
+
 func TestFetchPackageScoped(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Path can be encoded in different ways depending on the URL library
