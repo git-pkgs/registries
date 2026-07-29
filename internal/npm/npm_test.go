@@ -160,8 +160,13 @@ func TestFetchVersions_NoProvenance(t *testing.T) {
 	if sigs, _ := versions[0].Metadata["npm:signatures"].([]Signature); len(sigs) != 0 {
 		t.Errorf("expected empty signatures, got %+v", sigs)
 	}
-	if cp, _ := versions[0].Metadata["npm:contentPolicy"].(*ContentPolicy); cp != nil {
-		t.Errorf("expected nil contentPolicy, got %+v", cp)
+	cpAny, ok := versions[0].Metadata["npm:contentPolicy"]
+	if !ok {
+		t.Fatalf("expected Metadata[npm:contentPolicy] key to be present")
+	}
+	cp, ok := cpAny.(*ContentPolicy)
+	if !ok || cp != nil {
+		t.Errorf("expected nil *ContentPolicy, got %T (%+v)", cpAny, cp)
 	}
 }
 
