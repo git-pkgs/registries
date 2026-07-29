@@ -160,6 +160,48 @@ func TestFetchVersions_NoProvenance(t *testing.T) {
 	if sigs, _ := versions[0].Metadata["npm:signatures"].([]Signature); len(sigs) != 0 {
 		t.Errorf("expected empty signatures, got %+v", sigs)
 	}
+	if cp, _ := versions[0].Metadata["npm:contentPolicy"].(*ContentPolicy); cp != nil {
+		t.Errorf("expected nil contentPolicy, got %+v", cp)
+	}
+}
+
+// TestFetchVersions_ContentPolicy asserts the package.json contentPolicy
+// field round-trips into Version.Metadata as a typed *ContentPolicy.
+func TestFetchVersions_ContentPolicy(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		resp := map[string]interface{}{
+			"_id":       "dualuse",
+			"name":      "dualuse",
+			"dist-tags": map[string]string{"latest": "1.0.0"},
+			"versions": map[string]interface{}{
+				"1.0.0": map[string]interface{}{
+					"name":          "dualuse",
+					"version":       "1.0.0",
+					"contentPolicy": map[string]string{"class": "dual-use"},
+					"dist":          map[string]interface{}{"integrity": "sha512-xxx", "tarball": "https://example.invalid/dualuse-1.0.0.tgz"},
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	reg := New(server.URL, core.DefaultClient())
+	versions, err := reg.FetchVersions(context.Background(), "dualuse")
+	if err != nil {
+		t.Fatalf("FetchVersions: %v", err)
+	}
+	if len(versions) != 1 {
+		t.Fatalf("versions = %d, want 1", len(versions))
+	}
+
+	cp, ok := versions[0].Metadata["npm:contentPolicy"].(*ContentPolicy)
+	if !ok || cp == nil {
+		t.Fatalf("Metadata[npm:contentPolicy] not a *ContentPolicy: %T", versions[0].Metadata["npm:contentPolicy"])
+	}
+	if cp.Class != "dual-use" {
+		t.Errorf("contentPolicy.class = %q, want %q", cp.Class, "dual-use")
+	}
 }
 
 // TestFetchVersions_LegacyEnginesArray verifies that versions whose
