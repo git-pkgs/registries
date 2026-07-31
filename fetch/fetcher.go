@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rs/dnscache"
@@ -60,12 +61,13 @@ type FetcherInterface interface {
 
 // Fetcher downloads artifacts from upstream registries.
 type Fetcher struct {
-	client     *http.Client
-	userAgent  string
-	maxRetries int
-	baseDelay  time.Duration
-	authFn     func(url string) (headerName, headerValue string)
-	stop       chan struct{}
+	client       *http.Client
+	userAgent    string
+	maxRetries   int
+	baseDelay    time.Duration
+	authFn       func(url string) (headerName, headerValue string)
+	allowPrivate map[string]bool
+	stop         chan struct{}
 }
 
 // Option configures a Fetcher.
@@ -108,6 +110,29 @@ func WithAuthFunc(fn func(url string) (headerName, headerValue string)) Option {
 	}
 }
 
+// WithAllowPrivateHosts exempts the named hosts from the dial gate's loopback and private-address checks.
+func WithAllowPrivateHosts(hosts ...string) Option {
+	return func(f *Fetcher) {
+		if f.allowPrivate == nil {
+			f.allowPrivate = make(map[string]bool, len(hosts))
+		}
+		for _, h := range hosts {
+			if h = strings.TrimSpace(h); h != "" {
+				f.allowPrivate[strings.ToLower(h)] = true
+			}
+		}
+	}
+}
+
+// gateOptions returns the safehttp options for a dial to host.
+// Zero-value strict gate unless the host was whitelisted via WithAllowPrivateHosts.
+func (f *Fetcher) gateOptions(host string) safehttp.Options {
+	if f.allowPrivate[strings.ToLower(host)] {
+		return safehttp.Options{AllowLoopback: true, AllowPrivate: true}
+	}
+	return safehttp.Options{}
+}
+
 // NewFetcher creates a new Fetcher with the given options.
 // Callers should invoke Close when done to release the DNS refresh goroutine.
 func NewFetcher(opts ...Option) *Fetcher {
@@ -131,7 +156,8 @@ func NewFetcher(opts ...Option) *Fetcher {
 		KeepAlive: dialKeepAlive,
 	}
 
-	f := &Fetcher{
+	var f *Fetcher
+	f = &Fetcher{
 		client: &http.Client{
 			Timeout: httpClientTimeout,
 			Transport: &http.Transport{
@@ -153,7 +179,7 @@ func NewFetcher(opts ...Option) *Fetcher {
 					var lastErr error
 					for _, ip := range ips {
 						if parsed := net.ParseIP(ip); parsed != nil {
-							if err := safehttp.CheckIP(parsed, safehttp.Options{}); err != nil {
+							if err := safehttp.CheckIP(parsed, f.gateOptions(host)); err != nil {
 								lastErr = err
 								continue
 							}
