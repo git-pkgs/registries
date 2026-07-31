@@ -412,7 +412,7 @@ func TestFetcherCloseStopsGoroutine(t *testing.T) {
 
 func TestWithAllowPrivateHosts(t *testing.T) {
 	f := NewFetcher(WithAllowPrivateHosts(" Registry.Internal.svc ", ""))
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	opts := f.gateOptions("registry.internal.svc")
 	if !opts.AllowPrivate || !opts.AllowLoopback {
@@ -424,7 +424,7 @@ func TestWithAllowPrivateHosts(t *testing.T) {
 	}
 
 	strict := NewFetcher()
-	defer strict.Close()
+	defer func() { _ = strict.Close() }()
 	opts = strict.gateOptions("registry.internal.svc")
 	if opts.AllowPrivate || opts.AllowLoopback {
 		t.Errorf("default fetcher not strict: %+v", opts)
