@@ -6,7 +6,7 @@ require (
 	github.com/cenk/backoff v2.2.1+incompatible
 	github.com/git-pkgs/pom v0.1.5
 	github.com/git-pkgs/purl v0.1.15
-	github.com/git-pkgs/spdx v0.1.4
+	github.com/git-pkgs/spdx v0.3.0
 	github.com/rs/dnscache v0.0.0-20230804202142-fc85eb664529
 	github.com/rubyist/circuitbreaker v2.2.1+incompatible
 )
