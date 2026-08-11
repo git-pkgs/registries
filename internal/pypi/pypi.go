@@ -130,12 +130,12 @@ func extractRepoURL(projectURLs map[string]string, homePage string) string {
 		if strings.Contains(url, "/sponsors") {
 			continue
 		}
-		if parsed := urlparser.Parse(url); parsed != "" {
+		if parsed := urlparser.CanonicalURL(url); parsed != "" {
 			return parsed
 		}
 	}
 
-	if parsed := urlparser.Parse(homePage); parsed != "" {
+	if parsed := urlparser.CanonicalURL(homePage); parsed != "" {
 		return parsed
 	}
 

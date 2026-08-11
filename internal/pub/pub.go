@@ -86,7 +86,7 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 	latest := resp.Latest.Pubspec
 	repository := urlparser.Parse(latest.Repository)
 	if repository == "" {
-		repository = urlparser.Parse(latest.Homepage)
+		repository = urlparser.CanonicalURL(latest.Homepage)
 	}
 
 	return &core.Package{

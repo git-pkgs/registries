@@ -178,7 +178,7 @@ func parseDescription(content string) descriptionInfo {
 func extractRepository(urlField string) string {
 	urls := strings.Split(urlField, ",")
 	for _, u := range urls {
-		if parsed := urlparser.Parse(strings.TrimSpace(u)); parsed != "" {
+		if parsed := urlparser.CanonicalURL(strings.TrimSpace(u)); parsed != "" {
 			return parsed
 		}
 	}

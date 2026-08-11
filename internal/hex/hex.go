@@ -116,7 +116,7 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 		}
 	}
 	if repository == "" {
-		repository = urlparser.Parse(homepage)
+		repository = urlparser.CanonicalURL(homepage)
 	}
 
 	return &core.Package{

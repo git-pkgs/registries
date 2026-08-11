@@ -38,6 +38,27 @@ func TestFetchPackage(t *testing.T) {
 	}
 }
 
+func TestFetchPackageDoesNotDeriveRepositoryFromVanityPath(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/golang.org/x/sync/@v/list" {
+			_, _ = w.Write([]byte("v0.7.0\n"))
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer server.Close()
+
+	reg := New(server.URL, core.DefaultClient())
+	pkg, err := reg.FetchPackage(context.Background(), "golang.org/x/sync")
+	if err != nil {
+		t.Fatalf("FetchPackage failed: %v", err)
+	}
+
+	if pkg.Repository != "" {
+		t.Errorf("expected no repository, got %q", pkg.Repository)
+	}
+}
+
 func TestFetchPackagePkgsite(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/module/golang.org/x/sync" {

@@ -24,8 +24,8 @@ var knownHosts = map[string]string{
 	"bitbucket.org":         "https://bitbucket.org",
 	"bitbucket.com":         "https://bitbucket.org",
 	"codeberg.org":          "https://codeberg.org",
+	"gitea.com":             "https://gitea.com",
 	"sr.ht":                 "https://sr.ht",
-	"sourceforge.net":       "https://sourceforge.net",
 }
 
 // Subdomains to strip only for known hosts

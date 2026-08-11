@@ -54,6 +54,31 @@ func TestFetchPackage(t *testing.T) {
 	}
 }
 
+func TestFetchPackageDoesNotUseNonForgeHomepageAsRepository(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := packageResponse{
+			Name: "example",
+			Latest: versionInfo{
+				Pubspec: pubspec{
+					Homepage: "https://example.com/packages/example",
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	reg := New(server.URL, core.DefaultClient())
+	pkg, err := reg.FetchPackage(context.Background(), "example")
+	if err != nil {
+		t.Fatalf("FetchPackage failed: %v", err)
+	}
+
+	if pkg.Repository != "" {
+		t.Errorf("expected no repository, got %q", pkg.Repository)
+	}
+}
+
 func TestFetchVersions(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := packageResponse{

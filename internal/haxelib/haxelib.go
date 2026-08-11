@@ -79,7 +79,7 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 	}
 
 	// Extract repository URL from website
-	repository := urlparser.Parse(resp.Website)
+	repository := urlparser.CanonicalURL(resp.Website)
 
 	return &core.Package{
 		Name:        resp.Name,

@@ -65,6 +65,34 @@ func TestFetchPackage(t *testing.T) {
 	}
 }
 
+func TestExtractRepositoryUsesOnlyKnownForges(t *testing.T) {
+	tests := []struct {
+		name     string
+		urlField string
+		want     string
+	}{
+		{
+			name:     "skip project website",
+			urlField: "https://example.com/projects/ggplot2, https://github.com/tidyverse/ggplot2",
+			want:     "https://github.com/tidyverse/ggplot2",
+		},
+		{
+			name:     "reject project website",
+			urlField: "https://example.com/projects/ggplot2",
+			want:     "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractRepository(tt.urlField)
+			if got != tt.want {
+				t.Errorf("extractRepository() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFetchVersions(t *testing.T) {
 	mux := http.NewServeMux()
 

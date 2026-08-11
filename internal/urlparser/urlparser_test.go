@@ -160,7 +160,9 @@ func TestIsKnownHost(t *testing.T) {
 		{"https://gitlab.com/foo/bar", true},
 		{"https://bitbucket.org/foo/bar", true},
 		{"https://codeberg.org/foo/bar", true},
+		{"https://gitea.com/foo/bar", true},
 		{"https://foo.github.io/bar", true},
+		{"https://sourceforge.net/projects/foo", false},
 		{"https://git.example.com/foo/bar", false},
 		{"https://gitea.mydomain.org/foo/bar", false},
 		{"", false},
@@ -171,6 +173,27 @@ func TestIsKnownHost(t *testing.T) {
 			got := IsKnownHost(tt.input)
 			if got != tt.want {
 				t.Errorf("IsKnownHost(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCanonicalURL(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"https://github.com/foo/bar", "https://github.com/foo/bar"},
+		{"https://gitea.com/foo/bar", "https://gitea.com/foo/bar"},
+		{"https://sourceforge.net/projects/foo", ""},
+		{"https://example.com/projects/foo", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := CanonicalURL(tt.input)
+			if got != tt.want {
+				t.Errorf("CanonicalURL(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}
