@@ -110,25 +110,34 @@ func WithAuthFunc(fn func(url string) (headerName, headerValue string)) Option {
 	}
 }
 
-// WithAllowPrivateHosts exempts the named hosts from the dial gate's loopback and private-address checks.
+// WithAllowPrivateHosts permits the named hosts to resolve to private IP addresses.
+// Loopback and link-local addresses remain blocked.
 func WithAllowPrivateHosts(hosts ...string) Option {
 	return func(f *Fetcher) {
 		if f.allowPrivate == nil {
 			f.allowPrivate = make(map[string]bool, len(hosts))
 		}
 		for _, h := range hosts {
-			if h = strings.TrimSpace(h); h != "" {
-				f.allowPrivate[strings.ToLower(h)] = true
+			if h = normalizeHost(h); h != "" {
+				f.allowPrivate[h] = true
 			}
 		}
 	}
 }
 
+func normalizeHost(host string) string {
+	host = strings.TrimSpace(host)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	return strings.ToLower(strings.TrimSuffix(host, "."))
+}
+
 // gateOptions returns the safehttp options for a dial to host.
 // Zero-value strict gate unless the host was whitelisted via WithAllowPrivateHosts.
 func (f *Fetcher) gateOptions(host string) safehttp.Options {
-	if f.allowPrivate[strings.ToLower(host)] {
-		return safehttp.Options{AllowLoopback: true, AllowPrivate: true}
+	if f.allowPrivate[normalizeHost(host)] {
+		return safehttp.Options{AllowPrivate: true}
 	}
 	return safehttp.Options{}
 }

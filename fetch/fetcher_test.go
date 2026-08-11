@@ -411,14 +411,29 @@ func TestFetcherCloseStopsGoroutine(t *testing.T) {
 }
 
 func TestWithAllowPrivateHosts(t *testing.T) {
-	f := NewFetcher(WithAllowPrivateHosts(" Registry.Internal.svc ", ""))
+	f := NewFetcher(WithAllowPrivateHosts(
+		" Registry.Internal.svc ",
+		"registry-with-port.internal:8080",
+		"registry-with-dot.internal.",
+		"",
+	))
 	defer func() { _ = f.Close() }()
 
-	opts := f.gateOptions("registry.internal.svc")
-	if !opts.AllowPrivate || !opts.AllowLoopback {
-		t.Errorf("whitelisted host not exempted: %+v", opts)
+	for _, host := range []string{
+		"registry.internal.svc",
+		"REGISTRY-WITH-PORT.INTERNAL",
+		"registry-with-dot.internal",
+	} {
+		opts := f.gateOptions(host)
+		if !opts.AllowPrivate {
+			t.Errorf("gateOptions(%q).AllowPrivate = false, want true", host)
+		}
+		if opts.AllowLoopback {
+			t.Errorf("gateOptions(%q).AllowLoopback = true, want false", host)
+		}
 	}
-	opts = f.gateOptions("other.example.com")
+
+	opts := f.gateOptions("other.example.com")
 	if opts.AllowPrivate || opts.AllowLoopback {
 		t.Errorf("non-whitelisted host exempted: %+v", opts)
 	}
