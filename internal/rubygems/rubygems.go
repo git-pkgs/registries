@@ -109,14 +109,15 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 		return nil, err
 	}
 
-	repoURL := extractRepoURL(resp.SourceCodeURI, resp.WikiURI, resp.DocumentURI, resp.BugTrackerURI, resp.ChangelogURI, resp.HomepageURI)
+	repoURL := extractRepoURL(resp.SourceCodeURI, resp.HomepageURI)
 
 	return &core.Package{
-		Name:        resp.Name,
-		Description: resp.Info,
-		Homepage:    resp.HomepageURI,
-		Repository:  repoURL,
-		Licenses:    strings.Join(resp.Licenses, ","),
+		Name:          resp.Name,
+		Description:   resp.Info,
+		Homepage:      resp.HomepageURI,
+		Repository:    repoURL,
+		Licenses:      strings.Join(resp.Licenses, ","),
+		LatestVersion: resp.Version,
 		Metadata: map[string]any{
 			"downloads":   resp.Downloads,
 			"funding_uri": resp.FundingURI,
@@ -124,8 +125,11 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 	}, nil
 }
 
-func extractRepoURL(urls ...string) string {
-	return urlparser.FirstRepoURL(urls...)
+func extractRepoURL(sourceCodeURI, homepageURI string) string {
+	if repository := urlparser.Parse(sourceCodeURI); repository != "" {
+		return repository
+	}
+	return urlparser.CanonicalURL(homepageURI)
 }
 
 func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Version, error) {

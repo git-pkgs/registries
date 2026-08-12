@@ -48,6 +48,73 @@ func TestFetchPackage(t *testing.T) {
 	if pkg.Licenses != "MIT" {
 		t.Errorf("unexpected licenses: %q", pkg.Licenses)
 	}
+	if pkg.LatestVersion != "7.1.0" {
+		t.Errorf("unexpected latest version: %q", pkg.LatestVersion)
+	}
+}
+
+func TestFetchPackageFallsBackToForgeHomepage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := gemResponse{
+			Name:          "octokit",
+			Version:       "10.0.0",
+			HomepageURI:   "https://github.com/octokit/octokit.rb",
+			DocumentURI:   "https://www.rubydoc.info/gems/octokit/10.0.0",
+			SourceCodeURI: "",
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	reg := New(server.URL, core.DefaultClient())
+	pkg, err := reg.FetchPackage(context.Background(), "octokit")
+	if err != nil {
+		t.Fatalf("FetchPackage failed: %v", err)
+	}
+
+	if pkg.Repository != "https://github.com/octokit/octokit.rb" {
+		t.Errorf("unexpected repository: %q", pkg.Repository)
+	}
+	if pkg.LatestVersion != "10.0.0" {
+		t.Errorf("unexpected latest version: %q", pkg.LatestVersion)
+	}
+}
+
+func TestExtractRepoURL(t *testing.T) {
+	tests := []struct {
+		name          string
+		sourceCodeURI string
+		homepageURI   string
+		want          string
+	}{
+		{
+			name:          "source code takes priority",
+			sourceCodeURI: "https://git.example.com/org/project.git",
+			homepageURI:   "https://github.com/example/project",
+			want:          "https://git.example.com/org/project",
+		},
+		{
+			name:        "known forge homepage",
+			homepageURI: "https://codeberg.org/example/project",
+			want:        "https://codeberg.org/example/project",
+		},
+		{
+			name:        "non-forge homepage",
+			homepageURI: "https://example.com/projects/project",
+			want:        "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractRepoURL(tt.sourceCodeURI, tt.homepageURI)
+			if got != tt.want {
+				t.Errorf("extractRepoURL() = %q, want %q", got, tt.want)
+			}
+		})
+	}
 }
 
 func TestFetchVersions(t *testing.T) {
