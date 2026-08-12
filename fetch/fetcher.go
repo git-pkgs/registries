@@ -129,6 +129,8 @@ func normalizeHost(host string) string {
 	host = strings.TrimSpace(host)
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
+	} else if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		host = host[1 : len(host)-1]
 	}
 	return strings.ToLower(strings.TrimSuffix(host, "."))
 }

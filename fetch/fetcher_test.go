@@ -415,6 +415,7 @@ func TestWithAllowPrivateHosts(t *testing.T) {
 		" Registry.Internal.svc ",
 		"registry-with-port.internal:8080",
 		"registry-with-dot.internal.",
+		"[fd00::1]",
 		"",
 	))
 	defer func() { _ = f.Close() }()
@@ -423,6 +424,7 @@ func TestWithAllowPrivateHosts(t *testing.T) {
 		"registry.internal.svc",
 		"REGISTRY-WITH-PORT.INTERNAL",
 		"registry-with-dot.internal",
+		"fd00::1",
 	} {
 		opts := f.gateOptions(host)
 		if !opts.AllowPrivate {
