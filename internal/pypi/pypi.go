@@ -118,10 +118,12 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 
 func extractRepoURL(projectURLs map[string]string, homePage string) string {
 	priorityKeys := []string{"Repository", "Source", "Source Code", "Code"}
-	for _, key := range priorityKeys {
-		if url, ok := projectURLs[key]; ok && url != "" {
-			if parsed := urlparser.Parse(url); parsed != "" {
-				return parsed
+	for _, priorityKey := range priorityKeys {
+		for key, projectURL := range projectURLs {
+			if strings.EqualFold(key, priorityKey) && projectURL != "" {
+				if parsed := urlparser.Parse(projectURL); parsed != "" {
+					return parsed
+				}
 			}
 		}
 	}

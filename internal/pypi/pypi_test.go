@@ -92,6 +92,13 @@ func TestExtractRepoURLUsesOnlyKnownForgeFallbacks(t *testing.T) {
 			homepage: "https://example.com/projects/example",
 			want:     "",
 		},
+		{
+			name: "accept lowercase explicit self-hosted repository",
+			projectURLs: map[string]string{
+				"repository": "https://git.example.com/example/example",
+			},
+			want: "https://git.example.com/example/example",
+		},
 	}
 
 	for _, tt := range tests {
