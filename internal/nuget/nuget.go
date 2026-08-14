@@ -156,7 +156,7 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 }
 
 func extractRepository(projectURL string) string {
-	return urlparser.Parse(projectURL)
+	return urlparser.CanonicalURL(projectURL)
 }
 
 func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Version, error) {

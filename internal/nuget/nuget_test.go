@@ -27,7 +27,7 @@ func TestFetchPackage(t *testing.T) {
 								ID:               "Newtonsoft.Json",
 								Version:          "13.0.3",
 								Description:      "Json.NET is a popular high-performance JSON framework for .NET",
-								ProjectURL:       "https://www.newtonsoft.com/json",
+								ProjectURL:       "https://www.newtonsoft.com/products/json",
 								LicenseExpression: "MIT",
 								Listed:           true,
 								Tags:             []string{"json"},
@@ -57,6 +57,9 @@ func TestFetchPackage(t *testing.T) {
 	}
 	if len(pkg.Keywords) != 1 || pkg.Keywords[0] != "json" {
 		t.Errorf("unexpected keywords: %v", pkg.Keywords)
+	}
+	if pkg.Repository != "" {
+		t.Errorf("expected no repository, got %q", pkg.Repository)
 	}
 }
 

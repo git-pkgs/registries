@@ -87,7 +87,7 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 	// Extract repository URL
 	repository := urlparser.Parse(resp.Repository)
 	if repository == "" {
-		repository = urlparser.Parse(resp.Homepage)
+		repository = urlparser.CanonicalURL(resp.Homepage)
 	}
 
 	return &core.Package{

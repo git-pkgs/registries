@@ -130,7 +130,7 @@ func (r *Registry) fetchPackagePkgsite(ctx context.Context, name string) (*core.
 		repoURL = mod.RepoURL
 	}
 	if repoURL == "" {
-		repoURL = urlparser.Parse(deriveRepoURL(name))
+		repoURL = urlparser.CanonicalURL(deriveRepoURL(name))
 	}
 
 	var types []string
@@ -164,7 +164,7 @@ func (r *Registry) fetchPackageProxy(ctx context.Context, name string) (*core.Pa
 		return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name}
 	}
 
-	repoURL := urlparser.Parse(deriveRepoURL(name))
+	repoURL := urlparser.CanonicalURL(deriveRepoURL(name))
 
 	return &core.Package{
 		Name:       name,

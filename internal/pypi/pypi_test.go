@@ -69,6 +69,56 @@ func TestFetchPackage(t *testing.T) {
 	}
 }
 
+func TestExtractRepoURLUsesOnlyKnownForgeFallbacks(t *testing.T) {
+	tests := []struct {
+		name        string
+		projectURLs map[string]string
+		homepage    string
+		want        string
+	}{
+		{
+			name: "skip documentation URL",
+			projectURLs: map[string]string{
+				"Documentation": "https://docs.example.com/projects/example",
+			},
+			homepage: "https://github.com/example/example",
+			want:     "https://github.com/example/example",
+		},
+		{
+			name: "reject non-forge URLs",
+			projectURLs: map[string]string{
+				"Documentation": "https://docs.example.com/projects/example",
+			},
+			homepage: "https://example.com/projects/example",
+			want:     "",
+		},
+		{
+			name: "skip documentation on forge subdomain",
+			projectURLs: map[string]string{
+				"Documentation": "https://docs.github.com/en/repositories",
+				"GitHub":        "https://github.com/example/example",
+			},
+			want: "https://github.com/example/example",
+		},
+		{
+			name: "accept lowercase explicit self-hosted repository",
+			projectURLs: map[string]string{
+				"repository": "https://git.example.com/example/example",
+			},
+			want: "https://git.example.com/example/example",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractRepoURL(tt.projectURLs, tt.homepage)
+			if got != tt.want {
+				t.Errorf("extractRepoURL() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFetchPackageEscapesName(t *testing.T) {
 	var gotPath, gotQuery string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

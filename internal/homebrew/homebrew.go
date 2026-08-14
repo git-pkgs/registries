@@ -105,7 +105,7 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 	}
 
 	// Extract repository URL from homepage
-	repository := urlparser.Parse(resp.Homepage)
+	repository := urlparser.CanonicalURL(resp.Homepage)
 
 	var status string
 	if resp.Deprecated {

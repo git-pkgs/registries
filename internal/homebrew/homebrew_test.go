@@ -46,6 +46,9 @@ func TestFetchPackage(t *testing.T) {
 	if pkg.Licenses != "GPL-3.0-or-later" {
 		t.Errorf("unexpected license: %q", pkg.Licenses)
 	}
+	if pkg.Repository != "" {
+		t.Errorf("expected no repository, got %q", pkg.Repository)
+	}
 }
 
 func TestFetchPackageWithGitHubRepo(t *testing.T) {
