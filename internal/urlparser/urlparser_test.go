@@ -162,6 +162,9 @@ func TestIsKnownHost(t *testing.T) {
 		{"https://codeberg.org/foo/bar", true},
 		{"https://gitea.com/foo/bar", true},
 		{"https://foo.github.io/bar", true},
+		{"https://git.sr.ht/~foo/bar", true},
+		{"https://docs.github.com/en/repositories", false},
+		{"https://docs.gitlab.com/runner/configuration", false},
 		{"https://sourceforge.net/projects/foo", false},
 		{"https://git.example.com/foo/bar", false},
 		{"https://gitea.mydomain.org/foo/bar", false},
@@ -185,6 +188,9 @@ func TestCanonicalURL(t *testing.T) {
 	}{
 		{"https://github.com/foo/bar", "https://github.com/foo/bar"},
 		{"https://gitea.com/foo/bar", "https://gitea.com/foo/bar"},
+		{"https://foo.github.io/bar", "https://github.com/foo/bar"},
+		{"https://docs.github.com/en/repositories", ""},
+		{"https://docs.gitlab.com/runner/configuration", ""},
 		{"https://sourceforge.net/projects/foo", ""},
 		{"https://example.com/projects/foo", ""},
 	}

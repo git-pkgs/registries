@@ -107,8 +107,13 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 	}
 
 	var homepage, repository string
-	if gh, ok := links["github"]; ok {
-		repository = urlparser.Parse(gh)
+	for _, key := range []string{"github", "repository", "source", "source code", "code"} {
+		if link := links[key]; link != "" {
+			repository = urlparser.Parse(link)
+			if repository != "" {
+				break
+			}
+		}
 	}
 	for k, v := range links {
 		if k != "github" && homepage == "" {
@@ -116,7 +121,12 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 		}
 	}
 	if repository == "" {
-		repository = urlparser.CanonicalURL(homepage)
+		for _, link := range links {
+			if parsed := urlparser.CanonicalURL(link); parsed != "" {
+				repository = parsed
+				break
+			}
+		}
 	}
 
 	return &core.Package{

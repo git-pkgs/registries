@@ -405,21 +405,18 @@ func canonicalizeHost(host string) (canonical string, normalizedHost string) {
 
 // IsKnownHost returns true if the URL is from a recognized git hosting service.
 func IsKnownHost(rawURL string) bool {
-	host := strings.ToLower(ExtractHost(rawURL))
-	if host == "" {
+	cleaned := Clean(rawURL)
+	if cleaned == "" {
 		return false
 	}
+	host, _, _ := strings.Cut(cleaned, "/")
+	host = strings.ToLower(host)
 
 	if _, ok := knownHosts[host]; ok {
 		return true
 	}
 
-	for domain := range knownHosts {
-		if strings.HasSuffix(host, "."+domain) {
-			return true
-		}
-	}
-	return false
+	return strings.HasSuffix(host, ".github.io")
 }
 
 // Normalize cleans a git URL and ensures it has an https scheme.

@@ -93,6 +93,14 @@ func TestExtractRepoURLUsesOnlyKnownForgeFallbacks(t *testing.T) {
 			want:     "",
 		},
 		{
+			name: "skip documentation on forge subdomain",
+			projectURLs: map[string]string{
+				"Documentation": "https://docs.github.com/en/repositories",
+				"GitHub":        "https://github.com/example/example",
+			},
+			want: "https://github.com/example/example",
+		},
+		{
 			name: "accept lowercase explicit self-hosted repository",
 			projectURLs: map[string]string{
 				"repository": "https://git.example.com/example/example",

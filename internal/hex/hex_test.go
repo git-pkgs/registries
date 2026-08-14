@@ -81,6 +81,31 @@ func TestFetchPackageDoesNotUseNonForgeHomepageAsRepository(t *testing.T) {
 	}
 }
 
+func TestFetchPackageUsesExplicitSelfHostedRepositoryLink(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := packageResponse{
+			Name: "example",
+			Meta: metaInfo{
+				Links: map[string]string{
+					"Repository": "https://git.example.com/example/example",
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	reg := New(server.URL, core.DefaultClient())
+	pkg, err := reg.FetchPackage(context.Background(), "example")
+	if err != nil {
+		t.Fatalf("FetchPackage failed: %v", err)
+	}
+
+	if pkg.Repository != "https://git.example.com/example/example" {
+		t.Errorf("unexpected repository: %q", pkg.Repository)
+	}
+}
+
 func TestFetchVersions(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
