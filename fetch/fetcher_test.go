@@ -409,3 +409,41 @@ func TestFetcherCloseStopsGoroutine(t *testing.T) {
 		t.Errorf("second Close returned error: %v", err)
 	}
 }
+
+func TestWithAllowPrivateHosts(t *testing.T) {
+	f := NewFetcher(WithAllowPrivateHosts(
+		" Registry.Internal.svc ",
+		"registry-with-port.internal:8080",
+		"registry-with-dot.internal.",
+		"[fd00::1]",
+		"",
+	))
+	defer func() { _ = f.Close() }()
+
+	for _, host := range []string{
+		"registry.internal.svc",
+		"REGISTRY-WITH-PORT.INTERNAL",
+		"registry-with-dot.internal",
+		"fd00::1",
+	} {
+		opts := f.gateOptions(host)
+		if !opts.AllowPrivate {
+			t.Errorf("gateOptions(%q).AllowPrivate = false, want true", host)
+		}
+		if opts.AllowLoopback {
+			t.Errorf("gateOptions(%q).AllowLoopback = true, want false", host)
+		}
+	}
+
+	opts := f.gateOptions("other.example.com")
+	if opts.AllowPrivate || opts.AllowLoopback {
+		t.Errorf("non-whitelisted host exempted: %+v", opts)
+	}
+
+	strict := NewFetcher()
+	defer func() { _ = strict.Close() }()
+	opts = strict.gateOptions("registry.internal.svc")
+	if opts.AllowPrivate || opts.AllowLoopback {
+		t.Errorf("default fetcher not strict: %+v", opts)
+	}
+}

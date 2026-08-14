@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rs/dnscache"
@@ -60,12 +61,13 @@ type FetcherInterface interface {
 
 // Fetcher downloads artifacts from upstream registries.
 type Fetcher struct {
-	client     *http.Client
-	userAgent  string
-	maxRetries int
-	baseDelay  time.Duration
-	authFn     func(url string) (headerName, headerValue string)
-	stop       chan struct{}
+	client       *http.Client
+	userAgent    string
+	maxRetries   int
+	baseDelay    time.Duration
+	authFn       func(url string) (headerName, headerValue string)
+	allowPrivate map[string]bool
+	stop         chan struct{}
 }
 
 // Option configures a Fetcher.
@@ -108,6 +110,40 @@ func WithAuthFunc(fn func(url string) (headerName, headerValue string)) Option {
 	}
 }
 
+// WithAllowPrivateHosts permits the named hosts to resolve to private IP addresses.
+// Loopback and link-local addresses remain blocked.
+func WithAllowPrivateHosts(hosts ...string) Option {
+	return func(f *Fetcher) {
+		if f.allowPrivate == nil {
+			f.allowPrivate = make(map[string]bool, len(hosts))
+		}
+		for _, h := range hosts {
+			if h = normalizeHost(h); h != "" {
+				f.allowPrivate[h] = true
+			}
+		}
+	}
+}
+
+func normalizeHost(host string) string {
+	host = strings.TrimSpace(host)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	} else if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		host = host[1 : len(host)-1]
+	}
+	return strings.ToLower(strings.TrimSuffix(host, "."))
+}
+
+// gateOptions returns the safehttp options for a dial to host.
+// Zero-value strict gate unless the host was whitelisted via WithAllowPrivateHosts.
+func (f *Fetcher) gateOptions(host string) safehttp.Options {
+	if f.allowPrivate[normalizeHost(host)] {
+		return safehttp.Options{AllowPrivate: true}
+	}
+	return safehttp.Options{}
+}
+
 // NewFetcher creates a new Fetcher with the given options.
 // Callers should invoke Close when done to release the DNS refresh goroutine.
 func NewFetcher(opts ...Option) *Fetcher {
@@ -131,7 +167,8 @@ func NewFetcher(opts ...Option) *Fetcher {
 		KeepAlive: dialKeepAlive,
 	}
 
-	f := &Fetcher{
+	var f *Fetcher
+	f = &Fetcher{
 		client: &http.Client{
 			Timeout: httpClientTimeout,
 			Transport: &http.Transport{
@@ -153,7 +190,7 @@ func NewFetcher(opts ...Option) *Fetcher {
 					var lastErr error
 					for _, ip := range ips {
 						if parsed := net.ParseIP(ip); parsed != nil {
-							if err := safehttp.CheckIP(parsed, safehttp.Options{}); err != nil {
+							if err := safehttp.CheckIP(parsed, f.gateOptions(host)); err != nil {
 								lastErr = err
 								continue
 							}

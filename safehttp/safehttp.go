@@ -41,13 +41,15 @@ const (
 )
 
 // Options configures a safehttp client. The zero value gives the
-// production-strict gate; tests can opt parts of it off explicitly.
+// production-strict gate; tests and explicit operator allowlists can
+// opt parts of it off.
 type Options struct {
 	// AllowLoopback disables the loopback (127.0.0.0/8, ::1) check.
-	// Test-only; never set in production paths.
+	// Only set for tests or explicit operator allowlists.
 	AllowLoopback bool
 
-	// AllowPrivate disables the RFC1918 / ULA / CGNAT checks. Test-only.
+	// AllowPrivate disables the RFC1918 / ULA / CGNAT checks.
+	// Only set for tests or explicit operator allowlists.
 	AllowPrivate bool
 }
 
