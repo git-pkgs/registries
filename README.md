@@ -351,6 +351,32 @@ io.Copy(dst, artifact.Body)
 
 The fetcher uses DNS caching (5-minute refresh), connection pooling, and a 5-minute timeout suited for large artifacts. It retries on rate limits and server errors with exponential backoff and jitter.
 
+### Observing artifact responses
+
+Use `FetchObserved` when the response metadata and downloaded content digests need to be retained:
+
+```go
+artifact, err := f.FetchObserved(ctx, url)
+if err != nil {
+    log.Fatal(err)
+}
+defer artifact.Body.Close()
+
+if _, err := io.Copy(dst, artifact.Body); err != nil {
+    log.Fatal(err)
+}
+if !artifact.Observation.Complete {
+    log.Fatal("artifact body did not reach EOF")
+}
+
+fmt.Println(artifact.Observation.RequestedURL)
+fmt.Println(artifact.Observation.FinalURL)
+fmt.Println(artifact.Observation.ByteCount)
+fmt.Println(artifact.Observation.Digests["sha256"])
+```
+
+The observation includes the time to receive the final response headers, status, declared size, media type, and an allow-list of response headers: `Accept-Ranges`, `Cache-Control`, `Content-Disposition`, `Content-Encoding`, `Content-Length`, `Content-Range`, `Digest`, `ETag`, `Expires`, and `Last-Modified`. SHA-256 and SHA-512 digests use lowercase hexadecimal encoding. Byte counts and digests remain unset until the stream reaches EOF, so a partial download cannot appear complete. Request and authentication headers are not copied into the observation.
+
 ### Per-request headers
 
 Use `FetchWithHeaders` to pass HTTP headers for a single request. This is useful when the auth token varies per request or is obtained dynamically (e.g. Docker Hub token exchange):

@@ -36,6 +36,27 @@ func TestCircuitBreakerFetch_Success(t *testing.T) {
 	}
 }
 
+func TestCircuitBreakerFetchObserved_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("test content"))
+	}))
+	defer server.Close()
+
+	cbFetcher := NewCircuitBreakerFetcher(NewFetcher())
+	artifact, err := cbFetcher.FetchObserved(context.Background(), server.URL+"/test.tar.gz")
+	if err != nil {
+		t.Fatalf("FetchObserved failed: %v", err)
+	}
+	defer func() { _ = artifact.Body.Close() }()
+
+	if _, err := io.ReadAll(artifact.Body); err != nil {
+		t.Fatalf("ReadAll failed: %v", err)
+	}
+	if !artifact.Observation.Complete {
+		t.Error("observation is incomplete after reading the response body")
+	}
+}
+
 func TestCircuitBreakerHead_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodHead {

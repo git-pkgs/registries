@@ -105,6 +105,37 @@ func (cbf *CircuitBreakerFetcher) FetchWithHeaders(ctx context.Context, fetchURL
 	return artifact, fetchErr
 }
 
+// FetchObserved wraps the underlying fetcher's FetchObserved with circuit breaker logic.
+func (cbf *CircuitBreakerFetcher) FetchObserved(ctx context.Context, fetchURL string) (*ObservedArtifact, error) {
+	return cbf.FetchObservedWithHeaders(ctx, fetchURL, nil)
+}
+
+// FetchObservedWithHeaders wraps the underlying fetcher's FetchObservedWithHeaders with circuit breaker logic.
+func (cbf *CircuitBreakerFetcher) FetchObservedWithHeaders(ctx context.Context, fetchURL string, headers http.Header) (*ObservedArtifact, error) {
+	registry := extractRegistry(fetchURL)
+	breaker := cbf.getBreaker(registry)
+
+	if !breaker.Ready() {
+		return nil, fmt.Errorf("circuit breaker open for registry %s: %w", registry, ErrUpstreamDown)
+	}
+
+	var artifact *ObservedArtifact
+	var fetchErr error
+	err := breaker.Call(func() error {
+		artifact, fetchErr = cbf.fetcher.FetchObservedWithHeaders(ctx, fetchURL, headers)
+		if errors.Is(fetchErr, ErrNotFound) {
+			return nil
+		}
+		return fetchErr
+	}, 0)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return artifact, fetchErr
+}
+
 // Head wraps the underlying fetcher's Head with circuit breaker logic.
 func (cbf *CircuitBreakerFetcher) Head(ctx context.Context, headURL string) (size int64, contentType string, err error) {
 	registry := extractRegistry(headURL)

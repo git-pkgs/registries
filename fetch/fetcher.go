@@ -248,6 +248,27 @@ func (f *Fetcher) Fetch(ctx context.Context, url string) (*Artifact, error) {
 // FetchWithHeaders downloads an artifact from the given URL with additional HTTP headers.
 // The caller must close the returned Artifact.Body when done.
 func (f *Fetcher) FetchWithHeaders(ctx context.Context, url string, headers http.Header) (*Artifact, error) {
+	artifact, _, err := f.fetch(ctx, url, headers, false)
+	return artifact, err
+}
+
+// FetchObserved downloads an artifact and records metadata about the response.
+// The caller must read the body to EOF before treating the observation as complete.
+func (f *Fetcher) FetchObserved(ctx context.Context, url string) (*ObservedArtifact, error) {
+	return f.FetchObservedWithHeaders(ctx, url, nil)
+}
+
+// FetchObservedWithHeaders downloads an artifact with additional HTTP headers and
+// records metadata about the response. Request headers are not copied into the observation.
+func (f *Fetcher) FetchObservedWithHeaders(ctx context.Context, url string, headers http.Header) (*ObservedArtifact, error) {
+	artifact, observation, err := f.fetch(ctx, url, headers, true)
+	if err != nil {
+		return nil, err
+	}
+	return &ObservedArtifact{Artifact: artifact, Observation: observation}, nil
+}
+
+func (f *Fetcher) fetch(ctx context.Context, url string, headers http.Header, observe bool) (*Artifact, *FetchObservation, error) {
 	var lastErr error
 
 	for attempt := 0; attempt <= f.maxRetries; attempt++ {
@@ -259,21 +280,21 @@ func (f *Fetcher) FetchWithHeaders(ctx context.Context, url string, headers http
 
 			select {
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return nil, nil, ctx.Err()
 			case <-time.After(delay):
 			}
 		}
 
-		artifact, err := f.doFetch(ctx, url, headers)
+		artifact, observation, err := f.doFetch(ctx, url, headers, observe)
 		if err == nil {
-			return artifact, nil
+			return artifact, observation, nil
 		}
 
 		lastErr = err
 
 		// Don't retry on not found or client errors
 		if errors.Is(err, ErrNotFound) {
-			return nil, err
+			return nil, nil, err
 		}
 
 		// Retry on rate limit and server errors
@@ -282,16 +303,16 @@ func (f *Fetcher) FetchWithHeaders(ctx context.Context, url string, headers http
 		}
 
 		// Don't retry on other errors (network issues will be wrapped)
-		return nil, err
+		return nil, nil, err
 	}
 
-	return nil, lastErr
+	return nil, nil, lastErr
 }
 
-func (f *Fetcher) doFetch(ctx context.Context, url string, headers http.Header) (*Artifact, error) {
+func (f *Fetcher) doFetch(ctx context.Context, url string, headers http.Header, observe bool) (*Artifact, *FetchObservation, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return nil, nil, fmt.Errorf("creating request: %w", err)
 	}
 
 	req.Header.Set("User-Agent", f.userAgent)
@@ -311,9 +332,11 @@ func (f *Fetcher) doFetch(ctx context.Context, url string, headers http.Header) 
 		}
 	}
 
+	startedAt := time.Now()
 	resp, err := f.client.Do(req)
+	responseTime := time.Since(startedAt)
 	if err != nil {
-		return nil, fmt.Errorf("fetching artifact: %w", err)
+		return nil, nil, fmt.Errorf("fetching artifact: %w", err)
 	}
 
 	switch {
@@ -325,29 +348,44 @@ func (f *Fetcher) doFetch(ctx context.Context, url string, headers http.Header) 
 			}
 		}
 
-		return &Artifact{
+		artifact := &Artifact{
 			Body:        resp.Body,
 			Size:        size,
 			ContentType: resp.Header.Get("Content-Type"),
 			ETag:        resp.Header.Get("ETag"),
-		}, nil
+		}
+		if !observe {
+			return artifact, nil, nil
+		}
+
+		observation := &FetchObservation{
+			RequestedURL: url,
+			FinalURL:     resp.Request.URL.String(),
+			ResponseTime: responseTime,
+			StatusCode:   resp.StatusCode,
+			Headers:      copyObservedHeaders(resp.Header),
+			DeclaredSize: size,
+			MediaType:    resp.Header.Get("Content-Type"),
+		}
+		artifact.Body = newObservedBody(resp.Body, observation)
+		return artifact, observation, nil
 
 	case resp.StatusCode == http.StatusNotFound:
 		_ = resp.Body.Close()
-		return nil, ErrNotFound
+		return nil, nil, ErrNotFound
 
 	case resp.StatusCode == http.StatusTooManyRequests:
 		_ = resp.Body.Close()
-		return nil, ErrRateLimited
+		return nil, nil, ErrRateLimited
 
 	case resp.StatusCode >= serverErrThreshold:
 		_ = resp.Body.Close()
-		return nil, ErrUpstreamDown
+		return nil, nil, ErrUpstreamDown
 
 	default:
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrBodySize))
 		_ = resp.Body.Close()
-		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
+		return nil, nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
 	}
 }
 
