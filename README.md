@@ -376,13 +376,25 @@ if !artifact.Observation.Complete {
     log.Fatal("artifact body did not reach EOF")
 }
 
+sharedArtifact, err := artifact.Observation.Artifact(
+    "pkg:npm/lodash@4.17.21",
+    "lodash-4.17.21.tgz",
+)
+if err != nil {
+    log.Fatal(err)
+}
+
 fmt.Println(artifact.Observation.RequestedURL)
 fmt.Println(artifact.Observation.FinalURL)
 fmt.Println(artifact.Observation.ByteCount)
 fmt.Println(artifact.Observation.Digests["sha256"])
+fmt.Println(sharedArtifact.PURL)
+fmt.Println(sharedArtifact.Digest)
 ```
 
 The observation includes the time to receive the final response headers, status, declared size, media type, and an allow-list of response headers: `Accept-Ranges`, `Cache-Control`, `Content-Disposition`, `Content-Encoding`, `Content-Length`, `Content-Range`, `Digest`, `ETag`, `Expires`, and `Last-Modified`. SHA-256 and SHA-512 digests use lowercase hexadecimal encoding. Byte counts and digests remain unset until the stream reaches EOF, so a partial download cannot appear complete. Request and authentication headers are not copied into the observation.
+
+After EOF, `FetchObservation.Artifact` converts the SHA-256 digest, byte count, and media type into an `artifacts.Artifact`. The caller supplies the package URL and filename. The conversion rejects incomplete observations and missing or malformed SHA-256 digests.
 
 ### Per-request headers
 
