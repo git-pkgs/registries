@@ -11,6 +11,7 @@ require (
 	github.com/git-pkgs/vers v0.4.0
 	github.com/rs/dnscache v0.0.0-20230804202142-fc85eb664529
 	github.com/rubyist/circuitbreaker v2.2.1+incompatible
+	go.yaml.in/yaml/v3 v3.0.5
 )
 
 require (
