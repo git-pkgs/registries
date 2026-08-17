@@ -188,13 +188,25 @@ func FetchMaintainersFromPURL(ctx context.Context, purl string, c *Client) ([]Ma
 	return core.FetchMaintainersFromPURL(ctx, purl, c)
 }
 
-// FetchLatestVersion returns the latest non-yanked/retracted/deprecated version.
-// Returns nil if no valid versions exist.
+// FetchLatestVersion returns the registry-advertised latest version when
+// available. Otherwise it selects the latest active version by publication
+// time, falling back to ecosystem version ordering when timestamps are absent.
+// It returns nil when the registry reports no active versions.
+// If fetching versions fails after an advertised version is found, it returns
+// that version without metadata and suppresses the versions error.
 func FetchLatestVersion(ctx context.Context, reg Registry, name string) (*Version, error) {
 	return core.FetchLatestVersion(ctx, reg, name)
 }
 
-// FetchLatestVersionFromPURL returns the latest non-yanked version for a PURL.
+// SelectLatestVersion applies the shared latest-release policy to versions.
+// An advertised version takes precedence regardless of status; otherwise see
+// FetchLatestVersion for the selection order. The input slice is not modified.
+func SelectLatestVersion(versions []Version, ecosystem, advertised string) *Version {
+	return core.SelectLatestVersion(versions, ecosystem, advertised)
+}
+
+// FetchLatestVersionFromPURL returns the latest version for a PURL using the
+// shared latest-release policy.
 func FetchLatestVersionFromPURL(ctx context.Context, purl string, c *Client) (*Version, error) {
 	return core.FetchLatestVersionFromPURL(ctx, purl, c)
 }
@@ -224,8 +236,8 @@ func BulkFetchVersionsWithConcurrency(ctx context.Context, purls []string, c *Cl
 	return core.BulkFetchVersionsWithConcurrency(ctx, purls, c, concurrency)
 }
 
-// BulkFetchLatestVersions fetches the latest version for multiple PURLs in parallel.
-// Returns a map of PURL to the latest non-yanked Version.
+// BulkFetchLatestVersions fetches the latest version for multiple PURLs in
+// parallel using the shared latest-release policy.
 func BulkFetchLatestVersions(ctx context.Context, purls []string, c *Client) map[string]*Version {
 	return core.BulkFetchLatestVersions(ctx, purls, c)
 }

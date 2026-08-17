@@ -62,10 +62,16 @@ for _, m := range maintainers {
     fmt.Printf("%s <%s>\n", m.Login, m.Email)
 }
 
-// Fetch latest non-yanked version
+// Fetch the registry-advertised latest version, with an active-release fallback
 latest, err := registries.FetchLatestVersionFromPURL(ctx, "pkg:cargo/serde", nil)
 fmt.Println(latest.Number)      // e.g., "1.0.197"
 fmt.Println(latest.PublishedAt)
+
+// Apply the same policy to versions fetched elsewhere
+cargoPackage, err := registries.FetchPackageFromPURL(ctx, "pkg:cargo/serde", nil)
+cargoRegistry, cargoName, _, err := registries.NewFromPURL("pkg:cargo/serde", nil)
+cargoVersions, err := cargoRegistry.FetchVersions(ctx, cargoName)
+latest = registries.SelectLatestVersion(cargoVersions, cargoRegistry.Ecosystem(), cargoPackage.LatestVersion)
 
 // Parse a PURL to get the registry client
 reg, name, version, err := registries.NewFromPURL("pkg:pypi/requests@2.31.0", nil)
