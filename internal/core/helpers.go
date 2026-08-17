@@ -3,9 +3,9 @@ package core
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	"github.com/git-pkgs/purl"
+	"github.com/git-pkgs/vers"
 )
 
 const defaultConcurrency = 15
@@ -107,50 +107,76 @@ func FetchMaintainersFromPURL(ctx context.Context, purlStr string, client *Clien
 	return reg.FetchMaintainers(ctx, name)
 }
 
-// FetchLatestVersion returns the latest non-yanked/retracted/deprecated version.
-// Returns nil if no valid versions exist.
+// FetchLatestVersion returns the registry-advertised latest version when one
+// is available. Otherwise it selects the latest active version by publication
+// time, falling back to ecosystem version ordering when timestamps are absent.
+// It returns nil when the registry reports no active versions.
 func FetchLatestVersion(ctx context.Context, reg Registry, name string) (*Version, error) {
+	var advertised string
+	pkg, err := reg.FetchPackage(ctx, name)
+	if err == nil && pkg != nil {
+		advertised = pkg.LatestVersion
+	}
+
 	versions, err := reg.FetchVersions(ctx, name)
 	if err != nil {
+		if advertised != "" {
+			return &Version{Number: advertised}, nil
+		}
 		return nil, err
 	}
-
-	if len(versions) == 0 {
-		return nil, nil
-	}
-
-	// Filter out yanked/retracted/deprecated versions
-	var valid []Version
-	for _, v := range versions {
-		if v.Status == StatusNone {
-			valid = append(valid, v)
-		}
-	}
-
-	if len(valid) == 0 {
-		return nil, nil
-	}
-
-	// Sort by PublishedAt descending (newest first)
-	// If PublishedAt is zero, fall back to assuming the list order is correct
-	hasTimestamps := false
-	for _, v := range valid {
-		if !v.PublishedAt.IsZero() {
-			hasTimestamps = true
-			break
-		}
-	}
-
-	if hasTimestamps {
-		sort.Slice(valid, func(i, j int) bool {
-			return valid[i].PublishedAt.After(valid[j].PublishedAt)
-		})
-	}
-
-	return &valid[0], nil
+	return SelectLatestVersion(versions, reg.Ecosystem(), advertised), nil
 }
 
-// FetchLatestVersionFromPURL returns the latest non-yanked version for a PURL.
+// SelectLatestVersion applies the shared latest-release policy to versions.
+// An advertised version takes precedence, including when it is a prerelease
+// or has a non-empty status.
+// Without one, versions with a non-empty status are excluded and the newest
+// publication time wins. Ecosystem version ordering breaks timestamp ties and
+// is used when every active version lacks a timestamp. Prereleases remain
+// eligible in that fallback. The input slice is not modified.
+func SelectLatestVersion(versions []Version, ecosystem, advertised string) *Version {
+	if advertised != "" {
+		for i := range versions {
+			if vers.CompareWithScheme(versions[i].Number, advertised, ecosystem) == 0 {
+				selected := versions[i]
+				return &selected
+			}
+		}
+		return &Version{Number: advertised}
+	}
+
+	var latest *Version
+	hasTimestamp := false
+	for i := range versions {
+		candidate := &versions[i]
+		if candidate.Number == "" || candidate.Status != StatusNone {
+			continue
+		}
+		if !candidate.PublishedAt.IsZero() {
+			if !hasTimestamp || latest == nil || candidate.PublishedAt.After(latest.PublishedAt) ||
+				(candidate.PublishedAt.Equal(latest.PublishedAt) &&
+					vers.CompareWithScheme(candidate.Number, latest.Number, ecosystem) > 0) {
+				selected := *candidate
+				latest = &selected
+			}
+			hasTimestamp = true
+			continue
+		}
+		if hasTimestamp {
+			continue
+		}
+		if latest == nil || vers.CompareWithScheme(candidate.Number, latest.Number, ecosystem) > 0 {
+			selected := *candidate
+			latest = &selected
+		}
+	}
+
+	return latest
+}
+
+// FetchLatestVersionFromPURL returns the latest version for a PURL using the
+// shared latest-release policy.
 func FetchLatestVersionFromPURL(ctx context.Context, purl string, client *Client) (*Version, error) {
 	reg, name, _, err := NewFromPURL(purl, client)
 	if err != nil {
@@ -188,13 +214,14 @@ func BulkFetchVersionsWithConcurrency(ctx context.Context, purls []string, clien
 	})
 }
 
-// BulkFetchLatestVersions fetches the latest version for multiple PURLs in parallel.
-// Returns a map of PURL to the latest non-yanked Version.
+// BulkFetchLatestVersions fetches the latest version for multiple PURLs in
+// parallel using the shared latest-release policy.
 func BulkFetchLatestVersions(ctx context.Context, purls []string, client *Client) map[string]*Version {
 	return BulkFetchLatestVersionsWithConcurrency(ctx, purls, client, defaultConcurrency)
 }
 
-// BulkFetchLatestVersionsWithConcurrency fetches latest versions with a custom concurrency limit.
+// BulkFetchLatestVersionsWithConcurrency fetches latest versions using the
+// shared policy and a custom concurrency limit.
 func BulkFetchLatestVersionsWithConcurrency(ctx context.Context, purls []string, client *Client, concurrency int) map[string]*Version {
 	return ParallelMap(ctx, purls, concurrency, func(ctx context.Context, p string) (*Version, error) {
 		return FetchLatestVersionFromPURL(ctx, p, client)
