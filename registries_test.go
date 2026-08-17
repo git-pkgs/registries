@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/git-pkgs/registries"
 	_ "github.com/git-pkgs/registries/all"
@@ -203,5 +205,34 @@ func TestConstants(t *testing.T) {
 	}
 	if registries.StatusYanked != "yanked" {
 		t.Errorf("StatusYanked constant mismatch")
+	}
+}
+
+func TestRootClientOptions(t *testing.T) {
+	custom := &http.Client{Timeout: 7 * time.Second}
+	c := registries.NewClient(registries.WithHTTPClient(custom))
+	if c.HTTPClient != custom {
+		t.Errorf("WithHTTPClient set HTTPClient to %p; want %p", c.HTTPClient, custom)
+	}
+
+	transport := http.DefaultTransport
+	c = registries.NewClient(registries.WithTransport(transport))
+	if c.HTTPClient.Transport != transport {
+		t.Errorf("WithTransport set Transport to %v; want %v", c.HTTPClient.Transport, transport)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	c = registries.NewClient(registries.WithSafeHTTP())
+	resp, err := c.HTTPClient.Get(server.URL)
+	if err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("WithSafeHTTP should refuse a loopback address")
+	}
+	if !strings.Contains(err.Error(), "loopback") {
+		t.Errorf("WithSafeHTTP error %v should mention loopback", err)
 	}
 }
