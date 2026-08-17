@@ -69,8 +69,9 @@ fmt.Println(latest.PublishedAt)
 
 // Apply the same policy to versions fetched elsewhere
 cargoPackage, err := registries.FetchPackageFromPURL(ctx, "pkg:cargo/serde", nil)
-versions, err := registries.FetchVersionsFromPURL(ctx, "pkg:cargo/serde", nil)
-latest = registries.SelectLatestVersion(versions, "cargo", cargoPackage.LatestVersion)
+cargoRegistry, cargoName, _, err := registries.NewFromPURL("pkg:cargo/serde", nil)
+cargoVersions, err := cargoRegistry.FetchVersions(ctx, cargoName)
+latest = registries.SelectLatestVersion(cargoVersions, cargoRegistry.Ecosystem(), cargoPackage.LatestVersion)
 
 // Parse a PURL to get the registry client
 reg, name, version, err := registries.NewFromPURL("pkg:pypi/requests@2.31.0", nil)

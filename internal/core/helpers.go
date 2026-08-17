@@ -111,6 +111,8 @@ func FetchMaintainersFromPURL(ctx context.Context, purlStr string, client *Clien
 // is available. Otherwise it selects the latest active version by publication
 // time, falling back to ecosystem version ordering when timestamps are absent.
 // It returns nil when the registry reports no active versions.
+// If fetching versions fails after an advertised version is found, it returns
+// that version without metadata and suppresses the versions error.
 func FetchLatestVersion(ctx context.Context, reg Registry, name string) (*Version, error) {
 	var advertised string
 	pkg, err := reg.FetchPackage(ctx, name)
