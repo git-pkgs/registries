@@ -66,6 +66,7 @@ type Fetcher struct {
 	baseDelay    time.Duration
 	authFn       func(url string) (headerName, headerValue string)
 	safeHTTPOpts safehttp.Options
+	ipChecker    *safehttp.HostIPChecker
 	stop         chan struct{}
 }
 
@@ -165,7 +166,7 @@ func NewFetcher(opts ...Option) *Fetcher {
 					var lastErr error
 					for _, ip := range ips {
 						if parsed := net.ParseIP(ip); parsed != nil {
-							if err := safehttp.CheckHostIP(host, parsed, f.safeHTTPOpts); err != nil {
+							if err := f.ipChecker.Check(host, parsed); err != nil {
 								lastErr = err
 								continue
 							}
@@ -197,6 +198,7 @@ func NewFetcher(opts ...Option) *Fetcher {
 	for _, opt := range opts {
 		opt(f)
 	}
+	f.ipChecker = safehttp.NewHostIPChecker(f.safeHTTPOpts)
 	return f
 }
 

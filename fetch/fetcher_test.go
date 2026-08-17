@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -423,6 +424,9 @@ func TestWithAllowPrivateHosts(t *testing.T) {
 
 	if !reflect.DeepEqual(f.safeHTTPOpts.AllowPrivateHosts, want) {
 		t.Errorf("AllowPrivateHosts = %q; want %q", f.safeHTTPOpts.AllowPrivateHosts, want)
+	}
+	if err := f.ipChecker.Check("registry.internal.svc", net.ParseIP("10.0.0.1")); err != nil {
+		t.Errorf("allowlisted private host rejected: %v", err)
 	}
 
 	strict := NewFetcher()

@@ -105,6 +105,20 @@ func TestCheckHostIP_AllowPrivateHosts(t *testing.T) {
 	}
 }
 
+func TestHostIPCheckerReusesNormalizedAllowlist(t *testing.T) {
+	hosts := []string{" Registry.Internal.svc "}
+	checker := NewHostIPChecker(Options{AllowPrivateHosts: hosts})
+	hosts[0] = "other.example.com"
+
+	privateIP := net.ParseIP("10.0.0.1")
+	if err := checker.Check("registry.internal.svc", privateIP); err != nil {
+		t.Errorf("Check(registry.internal.svc, %s) = %v; want nil", privateIP, err)
+	}
+	if err := checker.Check("other.example.com", privateIP); err == nil {
+		t.Error("mutating the source options changed the compiled allowlist")
+	}
+}
+
 func TestCheckHostIP_AllowPrivateHostsKeepsOtherBlocks(t *testing.T) {
 	opts := Options{AllowPrivateHosts: []string{"registry.internal.svc"}}
 	for _, in := range []string{"127.0.0.1", "169.254.169.254", "fe80::1"} {

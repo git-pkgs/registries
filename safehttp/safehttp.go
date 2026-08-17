@@ -53,10 +53,10 @@ type Options struct {
 	// Only set for tests or explicit operator allowlists.
 	AllowPrivate bool
 
-	// AllowPrivateHosts permits the named hosts to resolve to RFC1918,
-	// ULA, or CGNAT addresses. Loopback and link-local addresses remain
-	// blocked. Host matching is case-insensitive and ignores ports and
-	// trailing dots.
+	// AllowPrivateHosts permits named hosts and IP literals to resolve or
+	// connect to RFC1918, ULA, or CGNAT addresses. Loopback and link-local
+	// addresses remain blocked. Host matching is case-insensitive and ignores
+	// ports and trailing dots.
 	AllowPrivateHosts []string
 }
 
@@ -119,9 +119,26 @@ func CheckIP(ip net.IP, opts Options) error {
 
 // CheckHostIP reports whether an IP is acceptable for the named host
 // under the supplied options. It applies AllowPrivateHosts in addition
-// to the checks performed by CheckIP.
+// to the checks performed by CheckIP. Use NewHostIPChecker when checking
+// multiple addresses with the same options.
 func CheckHostIP(host string, ip net.IP, opts Options) error {
-	return newGate(opts).checkHost(host, ip)
+	return NewHostIPChecker(opts).Check(host, ip)
+}
+
+// HostIPChecker checks resolved IP addresses against a normalized host
+// allowlist. It can be reused across dials without rebuilding the allowlist.
+type HostIPChecker struct {
+	gate *ipGate
+}
+
+// NewHostIPChecker creates a reusable checker from opts.
+func NewHostIPChecker(opts Options) *HostIPChecker {
+	return &HostIPChecker{gate: newGate(opts)}
+}
+
+// Check reports whether ip is acceptable for host.
+func (c *HostIPChecker) Check(host string, ip net.IP) error {
+	return c.gate.checkHost(host, ip)
 }
 
 type ipGate struct {
