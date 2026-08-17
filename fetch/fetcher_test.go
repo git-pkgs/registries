@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -411,39 +412,26 @@ func TestFetcherCloseStopsGoroutine(t *testing.T) {
 }
 
 func TestWithAllowPrivateHosts(t *testing.T) {
-	f := NewFetcher(WithAllowPrivateHosts(
+	want := []string{
 		" Registry.Internal.svc ",
 		"registry-with-port.internal:8080",
 		"registry-with-dot.internal.",
 		"[fd00::1]",
 		"",
-	))
+	}
+	f := NewFetcher(WithAllowPrivateHosts(want[:2]...), WithAllowPrivateHosts(want[2:]...))
 	defer func() { _ = f.Close() }()
 
-	for _, host := range []string{
-		"registry.internal.svc",
-		"REGISTRY-WITH-PORT.INTERNAL",
-		"registry-with-dot.internal",
-		"fd00::1",
-	} {
-		opts := f.gateOptions(host)
-		if !opts.AllowPrivate {
-			t.Errorf("gateOptions(%q).AllowPrivate = false, want true", host)
-		}
-		if opts.AllowLoopback {
-			t.Errorf("gateOptions(%q).AllowLoopback = true, want false", host)
-		}
+	if !reflect.DeepEqual(f.safeHTTPOpts.AllowPrivateHosts, want) {
+		t.Errorf("AllowPrivateHosts = %q; want %q", f.safeHTTPOpts.AllowPrivateHosts, want)
 	}
-
-	opts := f.gateOptions("other.example.com")
-	if opts.AllowPrivate || opts.AllowLoopback {
-		t.Errorf("non-whitelisted host exempted: %+v", opts)
+	if err := f.ipChecker.Check("registry.internal.svc", net.ParseIP("10.0.0.1")); err != nil {
+		t.Errorf("allowlisted private host rejected: %v", err)
 	}
 
 	strict := NewFetcher()
 	defer func() { _ = strict.Close() }()
-	opts = strict.gateOptions("registry.internal.svc")
-	if opts.AllowPrivate || opts.AllowLoopback {
-		t.Errorf("default fetcher not strict: %+v", opts)
+	if len(strict.safeHTTPOpts.AllowPrivateHosts) != 0 {
+		t.Errorf("default AllowPrivateHosts = %q; want empty", strict.safeHTTPOpts.AllowPrivateHosts)
 	}
 }

@@ -1,12 +1,15 @@
 package safehttp
 
 import (
+	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCheckIP_Blocks(t *testing.T) {
@@ -70,6 +73,74 @@ func TestCheckIP_Exported(t *testing.T) {
 	}
 	if err := CheckIP(net.ParseIP("8.8.8.8"), Options{}); err != nil {
 		t.Errorf("CheckIP(8.8.8.8) under default options should pass; err=%v", err)
+	}
+}
+
+func TestCheckHostIP_AllowPrivateHosts(t *testing.T) {
+	opts := Options{AllowPrivateHosts: []string{
+		" Registry.Internal.svc ",
+		"registry-with-port.internal:8080",
+		"registry-with-dot.internal.",
+		"[fd00::1]",
+		"",
+	}}
+	privateIP := net.ParseIP("10.0.0.1")
+
+	for _, host := range []string{
+		"registry.internal.svc",
+		"REGISTRY-WITH-PORT.INTERNAL",
+		"registry-with-dot.internal",
+		"fd00::1",
+	} {
+		if err := CheckHostIP(host, privateIP, opts); err != nil {
+			t.Errorf("CheckHostIP(%q, %s) = %v; want nil", host, privateIP, err)
+		}
+	}
+
+	if err := CheckHostIP("other.example.com", privateIP, opts); err == nil {
+		t.Error("unlisted host should not be allowed to use a private IP")
+	}
+	if err := CheckIP(privateIP, opts); err == nil {
+		t.Error("CheckIP without a hostname should not apply AllowPrivateHosts")
+	}
+}
+
+func TestHostIPCheckerReusesNormalizedAllowlist(t *testing.T) {
+	hosts := []string{" Registry.Internal.svc "}
+	checker := NewHostIPChecker(Options{AllowPrivateHosts: hosts})
+	hosts[0] = "other.example.com"
+
+	privateIP := net.ParseIP("10.0.0.1")
+	if err := checker.Check("registry.internal.svc", privateIP); err != nil {
+		t.Errorf("Check(registry.internal.svc, %s) = %v; want nil", privateIP, err)
+	}
+	if err := checker.Check("other.example.com", privateIP); err == nil {
+		t.Error("mutating the source options changed the compiled allowlist")
+	}
+}
+
+func TestCheckHostIP_AllowPrivateHostsKeepsOtherBlocks(t *testing.T) {
+	opts := Options{AllowPrivateHosts: []string{"registry.internal.svc"}}
+	for _, in := range []string{"127.0.0.1", "169.254.169.254", "fe80::1"} {
+		if err := CheckHostIP("registry.internal.svc", net.ParseIP(in), opts); err == nil {
+			t.Errorf("CheckHostIP(registry.internal.svc, %s) = nil; want error", in)
+		}
+	}
+}
+
+func TestGateDial_AllowPrivateHostIPLiteral(t *testing.T) {
+	g := newGate(Options{AllowPrivateHosts: []string{"10.0.0.1"}})
+	wantErr := errors.New("dial reached")
+	called := false
+	_, err := g.dial(context.Background(), "tcp", "10.0.0.1:80", func(_ context.Context, _, _ string) (net.Conn, error) {
+		called = true
+		return nil, wantErr
+	})
+	if !called {
+		t.Fatal("allowlisted private IP did not reach the underlying dialer")
+	}
+	if !errors.Is(err, wantErr) {
+		t.Errorf("dial error = %v; want %v", err, wantErr)
 	}
 }
 
@@ -144,6 +215,26 @@ func TestClient_BadSchemeRedirect(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "refusing redirect to scheme") {
 		t.Errorf("error %v should mention scheme rejection", err)
+	}
+}
+
+func TestClient_RedirectToUnlistedPrivateHostRefused(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://10.0.0.1/", http.StatusFound)
+	}))
+	defer ts.Close()
+
+	c := New(&http.Client{Timeout: time.Second}, Options{
+		AllowLoopback:     true,
+		AllowPrivateHosts: []string{"registry.internal.svc"},
+	})
+	resp, err := c.Get(ts.URL)
+	if err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("expected redirect to an unlisted private host to be refused")
+	}
+	if !strings.Contains(err.Error(), "private") {
+		t.Errorf("error %v should mention the private-IP refusal", err)
 	}
 }
 

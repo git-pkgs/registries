@@ -134,6 +134,15 @@ var WithTimeout = client.WithTimeout
 // WithMaxRetries sets the maximum number of retries.
 var WithMaxRetries = client.WithMaxRetries
 
+// WithHTTPClient swaps in a caller-supplied HTTP client.
+var WithHTTPClient = client.WithHTTPClient
+
+// WithTransport replaces the underlying HTTP transport.
+var WithTransport = client.WithTransport
+
+// WithSafeHTTP applies protections for requests to untrusted hosts.
+var WithSafeHTTP = client.WithSafeHTTP
+
 // SupportedEcosystems returns all registered ecosystem types.
 // Note: ecosystems must be imported to be registered.
 func SupportedEcosystems() []string {
