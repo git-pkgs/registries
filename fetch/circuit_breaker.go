@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cenk/backoff"
+	"github.com/facebookgo/clock"
 	circuit "github.com/rubyist/circuitbreaker"
 )
 
@@ -25,6 +26,12 @@ type CircuitBreakerFetcher struct {
 	fetcher  *Fetcher
 	breakers map[string]*circuit.Breaker
 	mu       sync.RWMutex
+
+	// clock is the time source for the breakers and their backoff, though not
+	// for the failure-count window, which the breaker library keeps on the
+	// system clock. A nil clock means the system clock; tests replace it to
+	// advance time without waiting out a backoff interval.
+	clock clock.Clock
 }
 
 // NewCircuitBreakerFetcher creates a new circuit breaker wrapper for a fetcher.
@@ -53,16 +60,30 @@ func (cbf *CircuitBreakerFetcher) getBreaker(registry string) *circuit.Breaker {
 		return breaker
 	}
 
-	// Create new circuit breaker with exponential backoff
-	// Trips after 5 consecutive failures
+	breakerClock := cbf.clock
+	if breakerClock == nil {
+		breakerClock = clock.New()
+	}
+
+	// Create new circuit breaker with exponential backoff. It trips once
+	// cbThreshold failures land inside the breaker's rolling failure window.
 	expBackoff := backoff.NewExponentialBackOff()
 	expBackoff.InitialInterval = cbInitialInterval
 	expBackoff.MaxInterval = cbMaxInterval
 	expBackoff.Multiplier = 2.0
+	// Retry forever, which is what the breaker library itself defaults to.
+	// NewExponentialBackOff instead defaults MaxElapsedTime to 15 minutes, after
+	// which NextBackOff returns backoff.Stop and the breaker never half-opens
+	// again. Only a success resets the backoff, and the breaker no longer lets
+	// one through, so an outage lasting longer than MaxElapsedTime leaves the
+	// breaker open for the life of the process even after the registry recovers.
+	expBackoff.MaxElapsedTime = 0
+	expBackoff.Clock = breakerClock
 	expBackoff.Reset()
 
 	opts := &circuit.Options{
 		BackOff:    expBackoff,
+		Clock:      breakerClock,
 		ShouldTrip: circuit.ThresholdTripFunc(cbThreshold),
 	}
 	breaker = circuit.NewBreakerWithOptions(opts)
@@ -82,12 +103,8 @@ func (cbf *CircuitBreakerFetcher) FetchWithHeaders(ctx context.Context, fetchURL
 	registry := extractRegistry(fetchURL)
 	breaker := cbf.getBreaker(registry)
 
-	// Check if circuit is open
-	if !breaker.Ready() {
-		return nil, fmt.Errorf("circuit breaker open for registry %s: %w", registry, ErrUpstreamDown)
-	}
-
-	// Attempt fetch
+	// Attempt fetch. Call checks the breaker itself; checking it here as well
+	// would spend the probe this call is about to make. See breakerError.
 	var artifact *Artifact
 	var fetchErr error
 	err := breaker.Call(func() error {
@@ -99,7 +116,7 @@ func (cbf *CircuitBreakerFetcher) FetchWithHeaders(ctx context.Context, fetchURL
 	}, 0)
 
 	if err != nil {
-		return nil, err
+		return nil, breakerError(registry, err)
 	}
 
 	return artifact, fetchErr
@@ -115,10 +132,6 @@ func (cbf *CircuitBreakerFetcher) FetchObservedWithHeaders(ctx context.Context, 
 	registry := extractRegistry(fetchURL)
 	breaker := cbf.getBreaker(registry)
 
-	if !breaker.Ready() {
-		return nil, fmt.Errorf("circuit breaker open for registry %s: %w", registry, ErrUpstreamDown)
-	}
-
 	var artifact *ObservedArtifact
 	var fetchErr error
 	err := breaker.Call(func() error {
@@ -130,7 +143,7 @@ func (cbf *CircuitBreakerFetcher) FetchObservedWithHeaders(ctx context.Context, 
 	}, 0)
 
 	if err != nil {
-		return nil, err
+		return nil, breakerError(registry, err)
 	}
 
 	return artifact, fetchErr
@@ -140,10 +153,6 @@ func (cbf *CircuitBreakerFetcher) FetchObservedWithHeaders(ctx context.Context, 
 func (cbf *CircuitBreakerFetcher) Head(ctx context.Context, headURL string) (size int64, contentType string, err error) {
 	registry := extractRegistry(headURL)
 	breaker := cbf.getBreaker(registry)
-
-	if !breaker.Ready() {
-		return 0, "", fmt.Errorf("circuit breaker open for registry %s: %w", registry, ErrUpstreamDown)
-	}
 
 	var headErr error
 	err = breaker.Call(func() error {
@@ -155,9 +164,19 @@ func (cbf *CircuitBreakerFetcher) Head(ctx context.Context, headURL string) (siz
 	}, 0)
 
 	if err != nil {
-		return 0, "", err
+		return 0, "", breakerError(registry, err)
 	}
 	return size, contentType, headErr
+}
+
+// breakerError maps the breaker's own open-circuit error onto ErrUpstreamDown,
+// so that every refusal to contact a registry reports the same way to callers,
+// and passes errors from the fetch itself through untouched.
+func breakerError(registry string, err error) error {
+	if errors.Is(err, circuit.ErrBreakerOpen) {
+		return fmt.Errorf("circuit breaker open for registry %s: %w", registry, ErrUpstreamDown)
+	}
+	return err
 }
 
 // extractRegistry extracts a registry identifier from a URL for circuit breaker grouping.
