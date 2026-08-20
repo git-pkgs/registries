@@ -411,7 +411,7 @@ When both `WithAuthFunc` and `FetchWithHeaders` set the same header, `WithAuthFu
 
 ### Circuit breaker
 
-Wrap a fetcher with per-host circuit breakers to avoid hammering a failing registry. The breaker trips after 5 consecutive failures and resets with exponential backoff (30s initial, 5min max).
+Wrap a fetcher with per-host circuit breakers to avoid hammering a failing registry. The breaker trips once 5 failures land inside its rolling 10 second failure window, then retries with exponential backoff (30s initial, 5min max). While it is open, one request per backoff interval is let through as a probe and the rest fail with `ErrUpstreamDown` without contacting the registry; a probe that succeeds closes the breaker again. Retries never give up, so a breaker recovers no matter how long the registry stayed down.
 
 ```go
 f := fetch.NewFetcher()
