@@ -20,12 +20,12 @@ func TestFetchPackage(t *testing.T) {
 
 		resp := packageResponse{
 			Info: infoBlock{
-				Name:              "requests",
-				Summary:           "Python HTTP for Humans.",
-				License:           "Apache 2.0",
-				HomePage:          "https://requests.readthedocs.io",
-				Version:           "2.31.0",
-				Keywords:          "http,web,client",
+				Name:     "requests",
+				Summary:  "Python HTTP for Humans.",
+				License:  "Apache 2.0",
+				HomePage: "https://requests.readthedocs.io",
+				Version:  "2.31.0",
+				Keywords: "http,web,client",
 				ProjectURLs: map[string]string{
 					"Source":        "https://github.com/psf/requests",
 					"Documentation": "https://requests.readthedocs.io",
@@ -179,8 +179,14 @@ func TestFetchVersions(t *testing.T) {
 				"2.31.0": {
 					{
 						Digests:    map[string]string{"sha256": "abc123"},
+						URL:        "https://files.pythonhosted.org/requests-2.31.0.tar.gz",
 						UploadTime: "2023-05-22T12:00:00",
 						Yanked:     false,
+					},
+					{
+						Digests: map[string]string{"sha256": "wheel456"},
+						URL:     "https://files.pythonhosted.org/requests-2.31.0-py3-none-any.whl",
+						Size:    1234,
 					},
 				},
 				"2.30.0": {
@@ -219,6 +225,19 @@ func TestFetchVersions(t *testing.T) {
 
 	if yankedCount != 1 {
 		t.Errorf("expected 1 yanked version, got %d", yankedCount)
+	}
+	for _, version := range versions {
+		if version.Number != "2.31.0" {
+			continue
+		}
+		if len(version.Artifacts) != 2 {
+			t.Fatalf("artifacts = %#v, want two", version.Artifacts)
+		}
+		wheel := version.Artifacts[1]
+		if wheel.Filename != "requests-2.31.0-py3-none-any.whl" ||
+			wheel.Integrity != "sha256-wheel456" || wheel.Size != 1234 {
+			t.Errorf("wheel = %#v", wheel)
+		}
 	}
 }
 

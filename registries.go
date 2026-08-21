@@ -52,6 +52,9 @@ type (
 	// Version represents a specific version of a package.
 	Version = core.Version
 
+	// Artifact describes one file published for a package version.
+	Artifact = core.Artifact
+
 	// Dependency represents a package dependency.
 	Dependency = core.Dependency
 

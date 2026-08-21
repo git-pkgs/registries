@@ -23,7 +23,18 @@ type Version struct {
 	Licenses    string
 	Integrity   string        // sha256-..., sha512-...
 	Status      VersionStatus // "", "yanked", "deprecated", "retracted"
+	Artifacts   []Artifact
 	Metadata    map[string]any
+}
+
+// Artifact describes one file published for a package version.
+type Artifact struct {
+	URL       string
+	Filename  string
+	Integrity string
+	Size      int64 // Zero when the registry does not publish a size.
+	MediaType string
+	Metadata  map[string]any
 }
 
 // VersionStatus represents the status of a package version.

@@ -230,6 +230,60 @@ func TestResolveFromMetadataAcceptsSafeURL(t *testing.T) {
 	}
 }
 
+func TestResolveFromMetadataSelectsPublishedArtifact(t *testing.T) {
+	reg := &fakeRegistry{
+		versions: []registries.Version{{
+			Number: "1.0.0",
+			Artifacts: []registries.Artifact{
+				{
+					URL:       "https://files.pythonhosted.org/example-1.0.0.tar.gz",
+					Filename:  "example-1.0.0.tar.gz",
+					Integrity: "sha256-source",
+				},
+				{
+					URL:       "https://files.pythonhosted.org/example-1.0.0-py3-none-any.whl",
+					Filename:  "example-1.0.0-py3-none-any.whl",
+					Integrity: "sha256-wheel",
+					Size:      1234,
+				},
+			},
+		}},
+	}
+	r := NewResolver()
+	r.RegisterRegistry(reg)
+
+	info, err := r.ResolveWithOptions(context.Background(), "fake", "example", "1.0.0", ResolveOptions{
+		Integrity: "sha256-wheel",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Filename != "example-1.0.0-py3-none-any.whl" || info.Size != 1234 {
+		t.Errorf("artifact = %#v", info)
+	}
+}
+
+func TestResolveFromMetadataRejectsMissingPublishedArtifact(t *testing.T) {
+	reg := &fakeRegistry{
+		versions: []registries.Version{{
+			Number: "1.0.0",
+			Artifacts: []registries.Artifact{{
+				URL:       "https://files.pythonhosted.org/example-1.0.0.tar.gz",
+				Integrity: "sha256-source",
+			}},
+		}},
+	}
+	r := NewResolver()
+	r.RegisterRegistry(reg)
+
+	_, err := r.ResolveWithOptions(context.Background(), "fake", "example", "1.0.0", ResolveOptions{
+		Integrity: "sha256-wheel",
+	})
+	if !errors.Is(err, ErrNoMatchingArtifact) {
+		t.Fatalf("ResolveWithOptions() error = %v, want ErrNoMatchingArtifact", err)
+	}
+}
+
 func TestFilenameFromURL(t *testing.T) {
 	tests := []struct {
 		url  string

@@ -16,6 +16,7 @@ import (
 var (
 	ErrUnsupportedEcosystem = errors.New("unsupported ecosystem")
 	ErrNoDownloadURL        = errors.New("no download URL available")
+	ErrNoMatchingArtifact   = errors.New("no artifact matches the requested file")
 	ErrUnsafeURL            = errors.New("unsafe download URL from registry metadata")
 )
 
@@ -49,25 +50,46 @@ type ArtifactInfo struct {
 	URL       string
 	Filename  string
 	Integrity string // sha256-... or sha512-...
+	Size      int64  // Zero when the registry does not publish a size.
+}
+
+// ResolveOptions narrows versions that publish several artifact files.
+type ResolveOptions struct {
+	Filename  string
+	Integrity string
 }
 
 // Resolve returns the download URL and filename for a package artifact.
 func (r *Resolver) Resolve(ctx context.Context, ecosystem, name, version string) (*ArtifactInfo, error) {
+	return r.ResolveWithOptions(ctx, ecosystem, name, version, ResolveOptions{})
+}
+
+// ResolveWithOptions returns the download metadata matching filename and
+// registry-native integrity constraints when they are populated.
+func (r *Resolver) ResolveWithOptions(
+	ctx context.Context,
+	ecosystem string,
+	name string,
+	version string,
+	options ResolveOptions,
+) (*ArtifactInfo, error) {
 	reg, ok := r.registries[ecosystem]
 	if !ok {
-		return r.resolveWithoutRegistry(ecosystem, name, version)
+		info, err := r.resolveWithoutRegistry(ecosystem, name, version)
+		return matchSingleArtifact(info, options, err)
 	}
 
 	// Try the simple URL builder first
 	if url := reg.URLs().Download(name, version); url != "" {
-		return &ArtifactInfo{
+		info := &ArtifactInfo{
 			URL:      url,
 			Filename: filenameFromURL(url),
-		}, nil
+		}
+		return matchSingleArtifact(info, options, nil)
 	}
 
 	// For ecosystems like PyPI, we need to fetch metadata to get the URL
-	return r.resolveFromMetadata(ctx, reg, name, version)
+	return r.resolveFromMetadata(ctx, reg, name, version, options)
 }
 
 // resolveWithoutRegistry handles ecosystems with predictable URLs
@@ -132,7 +154,13 @@ func (r *Resolver) resolveWithoutRegistry(ecosystem, name, version string) (*Art
 }
 
 // resolveFromMetadata fetches version metadata to find download URL.
-func (r *Resolver) resolveFromMetadata(ctx context.Context, reg Registry, name, version string) (*ArtifactInfo, error) {
+func (r *Resolver) resolveFromMetadata(
+	ctx context.Context,
+	reg Registry,
+	name string,
+	version string,
+	options ResolveOptions,
+) (*ArtifactInfo, error) {
 	versions, err := reg.FetchVersions(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("fetching versions: %w", err)
@@ -143,15 +171,21 @@ func (r *Resolver) resolveFromMetadata(ctx context.Context, reg Registry, name, 
 			continue
 		}
 
+		if len(v.Artifacts) > 0 {
+			return selectArtifact(v.Artifacts, options)
+		}
+
 		// Look for download URL in metadata. These come from the
 		// registry's API response, not from us, so they need checking
 		// before anyone fetches them.
 		if v.Metadata != nil {
 			if u, ok := v.Metadata["download_url"].(string); ok && u != "" {
-				return artifactFromMetadataURL(u, v.Integrity)
+				info, err := artifactFromMetadataURL(u, v.Integrity)
+				return matchSingleArtifact(info, options, err)
 			}
 			if u, ok := v.Metadata["tarball"].(string); ok && u != "" {
-				return artifactFromMetadataURL(u, v.Integrity)
+				info, err := artifactFromMetadataURL(u, v.Integrity)
+				return matchSingleArtifact(info, options, err)
 			}
 		}
 
@@ -159,6 +193,54 @@ func (r *Resolver) resolveFromMetadata(ctx context.Context, reg Registry, name, 
 	}
 
 	return nil, ErrNotFound
+}
+
+func selectArtifact(candidates []registries.Artifact, options ResolveOptions) (*ArtifactInfo, error) {
+	for _, candidate := range candidates {
+		filename := candidate.Filename
+		if filename == "" {
+			filename = filenameFromURL(candidate.URL)
+		}
+		if options.Filename != "" && filename != options.Filename {
+			continue
+		}
+		if options.Integrity != "" && !integrityMatches(candidate.Integrity, options.Integrity) {
+			continue
+		}
+		if err := checkMetadataURL(candidate.URL); err != nil {
+			return nil, err
+		}
+		return &ArtifactInfo{
+			URL:       candidate.URL,
+			Filename:  filename,
+			Integrity: candidate.Integrity,
+			Size:      candidate.Size,
+		}, nil
+	}
+	return nil, ErrNoMatchingArtifact
+}
+
+func matchSingleArtifact(info *ArtifactInfo, options ResolveOptions, err error) (*ArtifactInfo, error) {
+	if err != nil {
+		return nil, err
+	}
+	if options.Filename != "" && info.Filename != options.Filename {
+		return nil, ErrNoMatchingArtifact
+	}
+	if options.Integrity != "" && info.Integrity != "" &&
+		!integrityMatches(info.Integrity, options.Integrity) {
+		return nil, ErrNoMatchingArtifact
+	}
+	return info, nil
+}
+
+func integrityMatches(candidate, requested string) bool {
+	for _, expected := range strings.Fields(requested) {
+		if candidate == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func artifactFromMetadataURL(raw, integrity string) (*ArtifactInfo, error) {
