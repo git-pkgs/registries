@@ -61,6 +61,9 @@ func New(ecosystem string, baseURL string, client *Client) (Registry, error) { /
 	if baseURL == "" {
 		baseURL = defaultURL
 	}
+	if baseURL == "" {
+		return nil, fmt.Errorf("no registry URL configured for ecosystem: %s", ecosystem)
+	}
 
 	if client == nil {
 		client = DefaultClient()

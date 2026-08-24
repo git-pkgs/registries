@@ -17,7 +17,7 @@ import (
 func TestSupportedEcosystems(t *testing.T) {
 	ecosystems := registries.SupportedEcosystems()
 
-	expected := []string{"brew", "cargo", "clojars", "cocoapods", "composer", "conda", "cpan", "cran", "deno", "dub", "elm", "gem", "golang", "hackage", "haxelib", "hex", "julia", "luarocks", "maven", "nimble", "npm", "nuget", "pub", "pypi", "terraform"}
+	expected := []string{"brew", "cargo", "clojars", "cocoapods", "composer", "conda", "cpan", "cran", "deno", "dub", "elm", "gem", "golang", "hackage", "haxelib", "helm", "hex", "julia", "luarocks", "maven", "nimble", "npm", "nuget", "pub", "pypi", "terraform"}
 	sort.Strings(ecosystems)
 
 	if len(ecosystems) != len(expected) {
@@ -61,6 +61,7 @@ func TestNew(t *testing.T) {
 		{"haxelib", false},
 		{"deno", false},
 		{"terraform", false},
+		{"helm", true},
 		{"unknown", true},
 	}
 
@@ -104,6 +105,7 @@ func TestDefaultURL(t *testing.T) {
 		{"haxelib", "https://lib.haxe.org"},
 		{"deno", "https://apiland.deno.dev"},
 		{"terraform", "https://registry.terraform.io"},
+		{"helm", ""},
 	}
 
 	for _, tt := range tests {
@@ -113,6 +115,21 @@ func TestDefaultURL(t *testing.T) {
 				t.Errorf("DefaultURL(%q) = %q, want %q", tt.ecosystem, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestNewWithRequiredCustomURL(t *testing.T) {
+	reg, err := registries.New("helm", "https://charts.example.com", nil)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	if reg.Ecosystem() != "helm" {
+		t.Errorf("Ecosystem = %q, want helm", reg.Ecosystem())
+	}
+
+	_, err = registries.New("helm", "", nil)
+	if err == nil || err.Error() != "no registry URL configured for ecosystem: helm" {
+		t.Errorf("New without URL error = %v, want clear missing URL error", err)
 	}
 }
 

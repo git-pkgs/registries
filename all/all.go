@@ -9,7 +9,7 @@
 //
 //	// Now all ecosystems are available
 //	ecosystems := registries.SupportedEcosystems()
-//	// ["brew", "cargo", "clojars", "cocoapods", "composer", "conda", "cpan", "cran", "deno", "dub", "elm", "gem", "golang", "hackage", "haxelib", "hex", "julia", "luarocks", "maven", "nimble", "npm", "nuget", "pub", "pypi", "terraform"]
+//	// ["brew", "cargo", "clojars", "cocoapods", "composer", "conda", "cpan", "cran", "deno", "dub", "elm", "gem", "golang", "hackage", "haxelib", "helm", "hex", "julia", "luarocks", "maven", "nimble", "npm", "nuget", "pub", "pypi", "terraform"]
 package all
 
 import (
@@ -25,6 +25,7 @@ import (
 	_ "github.com/git-pkgs/registries/internal/golang"
 	_ "github.com/git-pkgs/registries/internal/hackage"
 	_ "github.com/git-pkgs/registries/internal/haxelib"
+	_ "github.com/git-pkgs/registries/internal/helm"
 	_ "github.com/git-pkgs/registries/internal/hex"
 	_ "github.com/git-pkgs/registries/internal/homebrew"
 	_ "github.com/git-pkgs/registries/internal/julia"

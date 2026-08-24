@@ -1,6 +1,6 @@
 # registries
 
-Go library for fetching package metadata from registry APIs. Supports 25 ecosystems with a unified interface. Also provides sub-packages for HTTP client usage (`client/`) and streaming artifact downloads (`fetch/`).
+Go library for fetching package metadata from registry APIs. Supports 26 ecosystems with a unified interface. Also provides sub-packages for HTTP client usage (`client/`) and streaming artifact downloads (`fetch/`).
 
 ## Installation
 
@@ -188,6 +188,7 @@ import _ "github.com/git-pkgs/registries/all"
 | LuaRocks | `luarocks` | https://luarocks.org |
 | Nimble | `nimble` | https://nimble.directory |
 | Haxelib | `haxelib` | https://lib.haxe.org |
+| Helm | `helm` | URL required |
 | Homebrew | `brew` | https://formulae.brew.sh |
 | Deno | `deno` | https://apiland.deno.dev |
 | Terraform | `terraform` | https://registry.terraform.io |
