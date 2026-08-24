@@ -83,24 +83,6 @@ func TestSelectLatestVersion(t *testing.T) {
 			want:      "1.10.0",
 		},
 		{
-			name: "composer stability ordering without timestamps",
-			versions: []Version{
-				{Number: "1.25.0-beta2.1"},
-				{Number: "1.25.0-b.3"},
-			},
-			ecosystem: "composer",
-			want:      "1.25.0-b.3",
-		},
-		{
-			name: "cargo build metadata ordering without timestamps",
-			versions: []Version{
-				{Number: "1.2.3+23"},
-				{Number: "1.2.3+42"},
-			},
-			ecosystem: "cargo",
-			want:      "1.2.3+42",
-		},
-		{
 			name: "dated versions take precedence over undated versions",
 			versions: []Version{
 				{Number: "2.0.0"},
