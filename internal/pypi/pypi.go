@@ -79,7 +79,7 @@ type releaseFile struct {
 	PackageType    string            `json:"packagetype"`
 	PythonVersion  string            `json:"python_version"`
 	RequiresPython string            `json:"requires_python"`
-	Size           int               `json:"size"`
+	Size           int64             `json:"size"`
 }
 
 type versionInfoResponse struct {
@@ -229,11 +229,17 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 			integrity = "sha256-" + sha256
 		}
 
+		artifacts := make([]core.Artifact, 0, len(files))
+		for _, release := range files {
+			artifacts = append(artifacts, releaseArtifact(release))
+		}
+
 		versions = append(versions, core.Version{
 			Number:      num,
 			PublishedAt: publishedAt,
 			Integrity:   integrity,
 			Status:      status,
+			Artifacts:   artifacts,
 			Metadata: map[string]any{
 				"download_url":    file.URL,
 				"requires_python": file.RequiresPython,
@@ -245,6 +251,33 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 	}
 
 	return versions, nil
+}
+
+func releaseArtifact(file releaseFile) core.Artifact {
+	var integrity string
+	if sha256, ok := file.Digests["sha256"]; ok {
+		integrity = "sha256-" + sha256
+	}
+	return core.Artifact{
+		URL:       file.URL,
+		Filename:  filenameFromURL(file.URL),
+		Integrity: integrity,
+		Size:      file.Size,
+		Metadata: map[string]any{
+			"requires_python": file.RequiresPython,
+			"yanked":          file.Yanked,
+			"yanked_reason":   file.YankedReason,
+			"packagetype":     file.PackageType,
+			"python_version":  file.PythonVersion,
+		},
+	}
+}
+
+func filenameFromURL(value string) string {
+	if index := strings.LastIndex(value, "/"); index >= 0 {
+		return value[index+1:]
+	}
+	return value
 }
 
 var pep508NameRegex = regexp.MustCompile(`^([A-Za-z0-9][-A-Za-z0-9._]*[A-Za-z0-9]|[A-Za-z0-9])(\s*\[.*?\])?`)
