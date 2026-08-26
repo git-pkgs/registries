@@ -2,6 +2,8 @@ package fetch
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -18,7 +20,12 @@ const (
 	cbInitialInterval = 30 * time.Second
 	cbMaxInterval     = 5 * time.Minute
 	cbThreshold       = 5
-	maxURLTruncate    = 50
+
+	// hostlessRegistryPrefix labels the identifier used for a URL with no host
+	// to group by, and hostlessRegistryDigest is how many hex characters of the
+	// URL's digest follow it. See extractRegistry.
+	hostlessRegistryPrefix = "hostless-url-"
+	hostlessRegistryDigest = 12
 )
 
 // CircuitBreakerFetcher wraps a Fetcher with per-registry circuit breakers.
@@ -179,16 +186,24 @@ func breakerError(registry string, err error) error {
 	return err
 }
 
-// extractRegistry extracts a registry identifier from a URL for circuit breaker grouping.
+// extractRegistry extracts a registry identifier from a URL for circuit breaker
+// grouping.
+//
+// The identifier travels further than the breaker map: breakerError names it in
+// the error the caller sees, and GetBreakerState hands it to callers that
+// publish it (git-pkgs/proxy reports it in /health and as a Prometheus label,
+// both unauthenticated). So a URL with no host to group by cannot fall back to
+// the URL itself. Fetch URLs are not all configuration: composer takes them
+// from a package's dist.url and helm from the chart URLs in index.yaml, so one
+// that carries no host can hold a signed-URL token or an internal address, and
+// returning it verbatim disclosed that. Group those under a digest of the URL
+// instead — opaque, yet still one breaker per distinct URL, which is as close
+// to per-host grouping as a hostless URL allows.
 func extractRegistry(rawURL string) string {
-	// Parse URL and extract host for circuit breaker grouping
 	parsed, err := url.Parse(rawURL)
 	if err != nil || parsed.Host == "" {
-		// Fallback to simple truncation
-		if len(rawURL) > maxURLTruncate {
-			return rawURL[:50]
-		}
-		return rawURL
+		digest := sha256.Sum256([]byte(rawURL))
+		return hostlessRegistryPrefix + hex.EncodeToString(digest[:])[:hostlessRegistryDigest]
 	}
 	return parsed.Host
 }

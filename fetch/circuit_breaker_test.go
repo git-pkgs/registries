@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -102,11 +103,6 @@ func TestExtractRegistry(t *testing.T) {
 			expected: "files.pythonhosted.org",
 		},
 		{
-			name:     "invalid URL",
-			url:      "not-a-valid-url",
-			expected: "not-a-valid-url",
-		},
-		{
 			name:     "long URL",
 			url:      "https://very-long-hostname.example.com/path",
 			expected: "very-long-hostname.example.com",
@@ -125,6 +121,94 @@ func TestExtractRegistry(t *testing.T) {
 				t.Errorf("extractRegistry(%q) = %q, want %q", tt.url, got, tt.expected)
 			}
 		})
+	}
+}
+
+// TestExtractRegistryHostlessURL covers the URLs that have no host to group by.
+// The identifier for those used to be the raw URL, truncated to 50 characters,
+// which disclosed whatever the URL carried: identifiers reach unauthenticated
+// endpoints (git-pkgs/proxy reports them in /health and as a Prometheus label)
+// and client-visible errors, while composer and helm take fetch URLs from
+// upstream metadata rather than from configuration. So assert on what the
+// identifier must not reveal, plus the grouping the breakers still need.
+func TestExtractRegistryHostlessURL(t *testing.T) {
+	const secret = "top-secret-signing-token"
+
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{
+			name: "no scheme or host",
+			url:  "signed-token=" + secret,
+		},
+		{
+			name: "path only",
+			url:  "/packages/pkg-1.0.0.tgz?sig=" + secret,
+		},
+		{
+			name: "scheme without host",
+			url:  "file:///srv/internal/" + secret + "/pkg-1.0.0.tgz",
+		},
+		{
+			name: "unparsable",
+			url:  "https://internal host.invalid/pkg.tgz?sig=" + secret,
+		},
+	}
+
+	identifiers := make(map[string]string, len(tests))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractRegistry(tt.url)
+
+			if strings.Contains(got, secret) {
+				t.Errorf("extractRegistry(%q) = %q, which discloses the URL", tt.url, got)
+			}
+			want := len(hostlessRegistryPrefix) + hostlessRegistryDigest
+			if !strings.HasPrefix(got, hostlessRegistryPrefix) || len(got) != want {
+				t.Errorf("extractRegistry(%q) = %q, want %q followed by %d hex characters",
+					tt.url, got, hostlessRegistryPrefix, hostlessRegistryDigest)
+			}
+			if again := extractRegistry(tt.url); again != got {
+				t.Errorf("extractRegistry(%q) is unstable: %q then %q", tt.url, got, again)
+			}
+			if other, ok := identifiers[got]; ok {
+				t.Errorf("extractRegistry(%q) = %q, already used for %q: these URLs share a breaker",
+					tt.url, got, other)
+			}
+			identifiers[got] = tt.url
+		})
+	}
+}
+
+// TestGetBreakerStateHostlessURLHidesURL is the end-to-end form of
+// TestExtractRegistryHostlessURL: a hostless URL that fails often enough to
+// trip its breaker must not put the URL into the state map, which is what
+// callers publish.
+func TestGetBreakerStateHostlessURLHidesURL(t *testing.T) {
+	const secret = "top-secret-signing-token"
+	artifactURL := "signed-token=" + secret
+
+	cbFetcher := NewCircuitBreakerFetcher(NewFetcher())
+
+	ctx := context.Background()
+	for range cbThreshold {
+		if _, err := cbFetcher.Fetch(ctx, artifactURL); err == nil {
+			t.Fatalf("Fetch(%q) succeeded, want an error", artifactURL)
+		}
+	}
+
+	states := cbFetcher.GetBreakerState()
+	if len(states) != 1 {
+		t.Fatalf("GetBreakerState() = %v, want one entry", states)
+	}
+	for registry, state := range states {
+		if strings.Contains(registry, secret) {
+			t.Errorf("GetBreakerState() key %q discloses the fetch URL", registry)
+		}
+		if state != "open" {
+			t.Errorf("GetBreakerState()[%q] = %q, want open after %d failures", registry, state, cbThreshold)
+		}
 	}
 }
 
