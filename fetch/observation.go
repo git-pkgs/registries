@@ -4,10 +4,14 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
+	"fmt"
 	"hash"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/git-pkgs/artifacts"
+	"github.com/opencontainers/go-digest"
 )
 
 var observedResponseHeaders = []string{
@@ -37,6 +41,30 @@ type FetchObservation struct {
 	ByteCount    int64
 	Digests      map[string]string
 	Complete     bool
+}
+
+// Artifact converts a completed observation into a shared artifact value.
+func (observation *FetchObservation) Artifact(packageURL, filename string) (artifacts.Artifact, error) {
+	if observation == nil || !observation.Complete {
+		return artifacts.Artifact{}, fmt.Errorf("fetch observation: incomplete")
+	}
+
+	sha256Digest := observation.Digests["sha256"]
+	if sha256Digest == "" {
+		return artifacts.Artifact{}, fmt.Errorf("fetch observation: missing SHA-256 digest")
+	}
+
+	artifact, err := artifacts.New(
+		packageURL,
+		digest.Digest("sha256:"+sha256Digest),
+		observation.ByteCount,
+		filename,
+		observation.MediaType,
+	)
+	if err != nil {
+		return artifacts.Artifact{}, fmt.Errorf("fetch observation: %w", err)
+	}
+	return artifact, nil
 }
 
 // ObservedArtifact contains an artifact and its fetch observation.

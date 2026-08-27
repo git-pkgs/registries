@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -107,6 +108,29 @@ func TestFetchObserved(t *testing.T) {
 	if observation.Digests["sha512"] != hex.EncodeToString(sha512Sum[:]) {
 		t.Errorf("sha512 digest = %q", observation.Digests["sha512"])
 	}
+
+	sharedArtifact, err := observation.Artifact(
+		"pkg:npm/example@1.0.0?repository_url=https%3A%2F%2Fregistry.example.com&arch=arm64",
+		"artifact.tgz",
+	)
+	if err != nil {
+		t.Fatalf("Artifact failed: %v", err)
+	}
+	if sharedArtifact.PURL != "pkg:npm/example@1.0.0?arch=arm64&repository_url=https:%2F%2Fregistry.example.com" {
+		t.Errorf("PURL = %q", sharedArtifact.PURL)
+	}
+	if sharedArtifact.Digest.Encoded() != observation.Digests["sha256"] {
+		t.Errorf("Digest = %q, want SHA-256 observation", sharedArtifact.Digest)
+	}
+	if sharedArtifact.Size != int64(len(content)) {
+		t.Errorf("Size = %d, want %d", sharedArtifact.Size, len(content))
+	}
+	if sharedArtifact.Filename != "artifact.tgz" {
+		t.Errorf("Filename = %q", sharedArtifact.Filename)
+	}
+	if sharedArtifact.MediaType != "application/gzip" {
+		t.Errorf("MediaType = %q", sharedArtifact.MediaType)
+	}
 }
 
 func TestFetchObservedIncompleteRead(t *testing.T) {
@@ -137,5 +161,85 @@ func TestFetchObservedIncompleteRead(t *testing.T) {
 	}
 	if artifact.Observation.Digests != nil {
 		t.Errorf("Digests = %v after an incomplete read, want nil", artifact.Observation.Digests)
+	}
+}
+
+func TestFetchObservationArtifact(t *testing.T) {
+	validDigest := strings.Repeat("a", sha256.Size*2)
+	tests := []struct {
+		name        string
+		observation *FetchObservation
+		packageURL  string
+		wantSize    int64
+		wantErr     string
+	}{
+		{
+			name: "zero byte",
+			observation: &FetchObservation{
+				Complete:  true,
+				Digests:   map[string]string{"sha256": validDigest},
+				MediaType: "application/octet-stream",
+			},
+			wantSize: 0,
+		},
+		{
+			name: "incomplete",
+			observation: &FetchObservation{
+				Digests: map[string]string{"sha256": validDigest},
+			},
+			wantErr: "incomplete",
+		},
+		{
+			name:        "nil",
+			observation: nil,
+			wantErr:     "incomplete",
+		},
+		{
+			name:        "missing digest",
+			observation: &FetchObservation{Complete: true},
+			wantErr:     "missing SHA-256 digest",
+		},
+		{
+			name: "malformed digest",
+			observation: &FetchObservation{
+				Complete: true,
+				Digests:  map[string]string{"sha256": "not-a-digest"},
+			},
+			wantErr: "digest",
+		},
+		{
+			name: "parent directory subpath",
+			observation: &FetchObservation{
+				Complete: true,
+				Digests:  map[string]string{"sha256": validDigest},
+			},
+			packageURL: "pkg:pypi/example@1.0.0#../docs",
+			wantErr:    "PURL subpath",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			packageURL := test.packageURL
+			if packageURL == "" {
+				packageURL = "pkg:pypi/example@1.0.0"
+			}
+			artifact, err := test.observation.Artifact(packageURL, "example.whl")
+			if test.wantErr != "" {
+				if err == nil {
+					t.Fatal("Artifact() error = nil")
+				}
+				if !strings.Contains(err.Error(), test.wantErr) {
+					t.Errorf("error = %q, want %q", err, test.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Artifact() error = %v", err)
+			}
+			if artifact.Size != test.wantSize {
+				t.Errorf("Size = %d, want %d", artifact.Size, test.wantSize)
+			}
+		})
 	}
 }
