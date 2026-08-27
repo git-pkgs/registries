@@ -2,6 +2,8 @@ package fetch
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -23,10 +25,22 @@ const (
 
 	// hostlessRegistryPrefix labels the identifier used for a URL with no host
 	// to group by, and hostlessRegistryDigest is how many hex characters of the
-	// URL's digest follow it. See extractRegistry.
+	// URL's keyed digest follow it. See extractRegistry.
 	hostlessRegistryPrefix = "hostless-url-"
-	hostlessRegistryDigest = 12
+	hostlessRegistryDigest = 32
 )
+
+// hostlessRegistryKey keys the digest that extractRegistry falls back to. It is
+// drawn once per process, so identifiers stay stable for as long as the breakers
+// they name, while nobody outside the process can reproduce a digest: neither to
+// match an identifier against a guessed URL, nor to pick inputs that collide
+// onto one breaker.
+var hostlessRegistryKey = sync.OnceValue(func() []byte {
+	key := make([]byte, sha256.BlockSize)
+	// Read fills key or panics; it never returns a short read.
+	_, _ = rand.Read(key)
+	return key
+})
 
 // CircuitBreakerFetcher wraps a Fetcher with per-registry circuit breakers.
 type CircuitBreakerFetcher struct {
@@ -189,21 +203,19 @@ func breakerError(registry string, err error) error {
 // extractRegistry extracts a registry identifier from a URL for circuit breaker
 // grouping.
 //
-// The identifier travels further than the breaker map: breakerError names it in
-// the error the caller sees, and GetBreakerState hands it to callers that
-// publish it (git-pkgs/proxy reports it in /health and as a Prometheus label,
-// both unauthenticated). So a URL with no host to group by cannot fall back to
-// the URL itself. Fetch URLs are not all configuration: composer takes them
-// from a package's dist.url and helm from the chart URLs in index.yaml, so one
-// that carries no host can hold a signed-URL token or an internal address, and
-// returning it verbatim disclosed that. Group those under a digest of the URL
-// instead — opaque, yet still one breaker per distinct URL, which is as close
-// to per-host grouping as a hostless URL allows.
+// Identifiers are externally observable: they name the registry in the errors
+// callers see and are the keys of GetBreakerState, which callers publish. Fetch
+// URLs, meanwhile, may hold secrets, since not all of them come from
+// configuration. So a URL with no host to group by cannot fall back to the URL
+// itself; it is grouped under a keyed digest of the URL, which discloses
+// nothing yet still gives one breaker per distinct URL.
 func extractRegistry(rawURL string) string {
 	parsed, err := url.Parse(rawURL)
 	if err != nil || parsed.Host == "" {
-		digest := sha256.Sum256([]byte(rawURL))
-		return hostlessRegistryPrefix + hex.EncodeToString(digest[:])[:hostlessRegistryDigest]
+		mac := hmac.New(sha256.New, hostlessRegistryKey())
+		// Write never returns an error, as hash.Hash documents.
+		_, _ = mac.Write([]byte(rawURL))
+		return hostlessRegistryPrefix + hex.EncodeToString(mac.Sum(nil))[:hostlessRegistryDigest]
 	}
 	return parsed.Host
 }

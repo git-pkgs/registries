@@ -2,6 +2,8 @@ package fetch
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -125,12 +127,9 @@ func TestExtractRegistry(t *testing.T) {
 }
 
 // TestExtractRegistryHostlessURL covers the URLs that have no host to group by.
-// The identifier for those used to be the raw URL, truncated to 50 characters,
-// which disclosed whatever the URL carried: identifiers reach unauthenticated
-// endpoints (git-pkgs/proxy reports them in /health and as a Prometheus label)
-// and client-visible errors, while composer and helm take fetch URLs from
-// upstream metadata rather than from configuration. So assert on what the
-// identifier must not reveal, plus the grouping the breakers still need.
+// Identifiers are externally observable and a fetch URL may carry a secret, so
+// assert on what the identifier must not reveal, along with the grouping the
+// breakers still need.
 func TestExtractRegistryHostlessURL(t *testing.T) {
 	const secret = "top-secret-signing-token"
 
@@ -169,6 +168,11 @@ func TestExtractRegistryHostlessURL(t *testing.T) {
 				t.Errorf("extractRegistry(%q) = %q, want %q followed by %d hex characters",
 					tt.url, got, hostlessRegistryPrefix, hostlessRegistryDigest)
 			}
+			unkeyed := sha256.Sum256([]byte(tt.url))
+			if got == hostlessRegistryPrefix+hex.EncodeToString(unkeyed[:])[:hostlessRegistryDigest] {
+				t.Errorf("extractRegistry(%q) = %q, a digest that anyone can recompute from a guessed URL",
+					tt.url, got)
+			}
 			if again := extractRegistry(tt.url); again != got {
 				t.Errorf("extractRegistry(%q) is unstable: %q then %q", tt.url, got, again)
 			}
@@ -182,9 +186,9 @@ func TestExtractRegistryHostlessURL(t *testing.T) {
 }
 
 // TestGetBreakerStateHostlessURLHidesURL is the end-to-end form of
-// TestExtractRegistryHostlessURL: a hostless URL that fails often enough to
-// trip its breaker must not put the URL into the state map, which is what
-// callers publish.
+// TestExtractRegistryHostlessURL: a hostless URL that fails often enough to trip
+// its breaker must not put the URL into the state map that callers publish, and
+// every one of those failures must land on the same breaker.
 func TestGetBreakerStateHostlessURLHidesURL(t *testing.T) {
 	const secret = "top-secret-signing-token"
 	artifactURL := "signed-token=" + secret
@@ -200,7 +204,8 @@ func TestGetBreakerStateHostlessURLHidesURL(t *testing.T) {
 
 	states := cbFetcher.GetBreakerState()
 	if len(states) != 1 {
-		t.Fatalf("GetBreakerState() = %v, want one entry", states)
+		t.Fatalf("GetBreakerState() = %v, want one entry: the identifier has to be stable "+
+			"within a fetcher for the breaker to count failures", states)
 	}
 	for registry, state := range states {
 		if strings.Contains(registry, secret) {
