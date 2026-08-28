@@ -2,6 +2,10 @@ package fetch
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -18,8 +22,25 @@ const (
 	cbInitialInterval = 30 * time.Second
 	cbMaxInterval     = 5 * time.Minute
 	cbThreshold       = 5
-	maxURLTruncate    = 50
+
+	// hostlessRegistryPrefix labels the identifier used for a URL with no host
+	// to group by, and hostlessRegistryDigest is how many hex characters of the
+	// URL's keyed digest follow it. See extractRegistry.
+	hostlessRegistryPrefix = "hostless-url-"
+	hostlessRegistryDigest = 32
 )
+
+// hostlessRegistryKey keys the digest that extractRegistry falls back to. It is
+// drawn once per process, so identifiers stay stable for as long as the breakers
+// they name, while nobody outside the process can reproduce a digest: neither to
+// match an identifier against a guessed URL, nor to pick inputs that collide
+// onto one breaker.
+var hostlessRegistryKey = sync.OnceValue(func() []byte {
+	key := make([]byte, sha256.BlockSize)
+	// Read fills key or panics; it never returns a short read.
+	_, _ = rand.Read(key)
+	return key
+})
 
 // CircuitBreakerFetcher wraps a Fetcher with per-registry circuit breakers.
 type CircuitBreakerFetcher struct {
@@ -179,16 +200,22 @@ func breakerError(registry string, err error) error {
 	return err
 }
 
-// extractRegistry extracts a registry identifier from a URL for circuit breaker grouping.
+// extractRegistry extracts a registry identifier from a URL for circuit breaker
+// grouping.
+//
+// Identifiers are externally observable: they name the registry in the errors
+// callers see and are the keys of GetBreakerState, which callers publish. Fetch
+// URLs, meanwhile, may hold secrets, since not all of them come from
+// configuration. So a URL with no host to group by cannot fall back to the URL
+// itself; it is grouped under a keyed digest of the URL, which discloses
+// nothing yet still gives one breaker per distinct URL.
 func extractRegistry(rawURL string) string {
-	// Parse URL and extract host for circuit breaker grouping
 	parsed, err := url.Parse(rawURL)
 	if err != nil || parsed.Host == "" {
-		// Fallback to simple truncation
-		if len(rawURL) > maxURLTruncate {
-			return rawURL[:50]
-		}
-		return rawURL
+		mac := hmac.New(sha256.New, hostlessRegistryKey())
+		// Write never returns an error, as hash.Hash documents.
+		_, _ = mac.Write([]byte(rawURL))
+		return hostlessRegistryPrefix + hex.EncodeToString(mac.Sum(nil))[:hostlessRegistryDigest]
 	}
 	return parsed.Host
 }
