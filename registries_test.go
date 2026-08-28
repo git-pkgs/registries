@@ -212,6 +212,31 @@ func TestBuildURLs(t *testing.T) {
 	}
 }
 
+func TestBuildURLsCleansPURLConstraints(t *testing.T) {
+	reg, err := registries.New("npm", "", nil)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		version string
+		want    string
+	}{
+		{name: "exclusive lower bound", version: ">1.0.0", want: "pkg:npm/lodash@%3E1.0.0"},
+		{name: "union uses ecosystem ordering", version: "2.0.0 || 1.0.0", want: "pkg:npm/lodash@1.0.0"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := registries.BuildURLs(reg.URLs(), "lodash", test.version)
+			if got["purl"] != test.want {
+				t.Errorf("purl = %q, want %q", got["purl"], test.want)
+			}
+		})
+	}
+}
+
 func TestConstants(t *testing.T) {
 	// Verify constants are exported correctly
 	if registries.Runtime != "runtime" {
