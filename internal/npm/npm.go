@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/git-pkgs/purl"
 	"github.com/git-pkgs/registries/internal/core"
 )
 
@@ -404,23 +405,5 @@ func (u *URLs) Documentation(name, version string) string {
 }
 
 func (u *URLs) PURL(name, version string) string {
-	namespace := ""
-	pkgName := name
-	if strings.HasPrefix(name, "@") && strings.Contains(name, "/") {
-		parts := strings.SplitN(name, "/", 2) //nolint:mnd // scope/name split
-		namespace = parts[0]
-		pkgName = parts[1]
-	}
-
-	if namespace != "" {
-		if version != "" {
-			return fmt.Sprintf("pkg:npm/%s/%s@%s", namespace, pkgName, version)
-		}
-		return fmt.Sprintf("pkg:npm/%s/%s", namespace, pkgName)
-	}
-
-	if version != "" {
-		return fmt.Sprintf("pkg:npm/%s@%s", pkgName, version)
-	}
-	return fmt.Sprintf("pkg:npm/%s", pkgName)
+	return purl.BuildPURLString(ecosystem, name, version, "")
 }

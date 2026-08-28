@@ -500,7 +500,7 @@ func TestURLBuilder(t *testing.T) {
 		{"download", func() string { return urls.Download("lodash", "4.17.21") }, "https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz"},
 		{"scoped download", func() string { return urls.Download("@babel/core", "7.24.0") }, "https://registry.npmjs.org/@babel/core/-/core-7.24.0.tgz"},
 		{"purl", func() string { return urls.PURL("lodash", "4.17.21") }, "pkg:npm/lodash@4.17.21"},
-		{"scoped purl", func() string { return urls.PURL("@babel/core", "7.24.0") }, "pkg:npm/@babel/core@7.24.0"},
+		{"scoped purl", func() string { return urls.PURL("@babel/core", "7.24.0") }, "pkg:npm/%40babel/core@7.24.0"},
 	}
 
 	for _, tt := range tests {
