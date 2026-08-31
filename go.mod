@@ -1,6 +1,8 @@
 module github.com/git-pkgs/registries
 
-go 1.26.7
+go 1.26.0
+
+toolchain go1.26.7
 
 require (
 	github.com/cenk/backoff v2.2.1+incompatible
