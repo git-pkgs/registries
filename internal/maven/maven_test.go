@@ -142,10 +142,6 @@ func TestFetchVersions(t *testing.T) {
 	}
 }
 
-// TestFetchVersionsParsesRealSolrGavShape feeds the raw JSON the Maven
-// Central search API actually returns for core=gav (version in "v", not
-// "latestVersion"). Encoding a searchDoc struct in the other tests hides
-// the field name, so this guards the tag directly.
 func TestFetchVersionsParsesRealSolrGavShape(t *testing.T) {
 	const body = `{"responseHeader":{"status":0},"response":{"numFound":3,"start":0,"docs":[
 		{"id":"org.slf4j:slf4j-api:2.0.17","g":"org.slf4j","a":"slf4j-api","v":"2.0.17","p":"jar","timestamp":1740501794416},
