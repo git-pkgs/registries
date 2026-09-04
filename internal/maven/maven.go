@@ -92,10 +92,16 @@ type searchResponseBody struct {
 }
 
 type searchDoc struct {
-	ID           string `json:"id"`
-	GroupID      string `json:"g"`
-	ArtifactID   string `json:"a"`
-	Version      string `json:"latestVersion"`
+	ID         string `json:"id"`
+	GroupID    string `json:"g"`
+	ArtifactID string `json:"a"`
+	// Version is the concrete version of this document. Both FetchPackage
+	// and FetchVersions query the search API with core=gav, where each doc
+	// is one groupId:artifactId:version and the version is in the "v"
+	// field. ("latestVersion" only appears on the default, non-gav core,
+	// where a doc aggregates an artifact - unmarshalling from that field
+	// here left every Number empty.)
+	Version      string `json:"v"`
 	Timestamp    int64  `json:"timestamp"`
 	VersionCount int    `json:"versionCount"`
 }
