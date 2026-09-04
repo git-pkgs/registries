@@ -43,11 +43,10 @@ func TestFetchPackage(t *testing.T) {
 				NumFound: 1,
 				Docs: []searchDoc{
 					{
-						ID:           "com.google.guava:guava",
-						GroupID:      "com.google.guava",
-						ArtifactID:   "guava",
-						Version:      "32.1.0-jre",
-						VersionCount: 150,
+						ID:         "com.google.guava:guava",
+						GroupID:    "com.google.guava",
+						ArtifactID: "guava",
+						Version:    "32.1.0-jre",
 					},
 				},
 			},
