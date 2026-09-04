@@ -96,9 +96,8 @@ type searchDoc struct {
 	GroupID    string `json:"g"`
 	ArtifactID string `json:"a"`
 	// core=gav returns the version in "v"; "latestVersion" only exists on the non-gav aggregated core.
-	Version      string `json:"v"`
-	Timestamp    int64  `json:"timestamp"`
-	VersionCount int    `json:"versionCount"`
+	Version   string `json:"v"`
+	Timestamp int64  `json:"timestamp"`
 }
 
 // pomDevelopers is the minimal XML shape needed for FetchMaintainers; the
@@ -203,9 +202,8 @@ func (r *Registry) packageFromSearchAndPOM(doc searchDoc, ep *pom.EffectivePOM) 
 		Name:      fmt.Sprintf("%s:%s", doc.GroupID, doc.ArtifactID),
 		Namespace: doc.GroupID,
 		Metadata: map[string]any{
-			"group_id":      doc.GroupID,
-			"artifact_id":   doc.ArtifactID,
-			"version_count": doc.VersionCount,
+			"group_id":    doc.GroupID,
+			"artifact_id": doc.ArtifactID,
 		},
 	}
 
