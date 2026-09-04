@@ -7,11 +7,11 @@ toolchain go1.26.7
 require (
 	github.com/cenk/backoff v2.2.1+incompatible
 	github.com/facebookgo/clock v0.0.0-20150410010913-600d898af40a
-	github.com/git-pkgs/artifacts v0.2.0
+	github.com/git-pkgs/artifacts v0.2.1
 	github.com/git-pkgs/pom v0.1.7
-	github.com/git-pkgs/purl v0.1.19
+	github.com/git-pkgs/purl v0.1.20
 	github.com/git-pkgs/spdx v0.3.1
-	github.com/git-pkgs/vers v0.6.0
+	github.com/git-pkgs/vers v0.7.0
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/rs/dnscache v0.0.0-20230804202142-fc85eb664529
 	github.com/rubyist/circuitbreaker v2.2.1+incompatible
