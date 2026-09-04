@@ -92,10 +92,11 @@ type searchResponseBody struct {
 }
 
 type searchDoc struct {
-	ID           string `json:"id"`
-	GroupID      string `json:"g"`
-	ArtifactID   string `json:"a"`
-	Version      string `json:"latestVersion"`
+	ID         string `json:"id"`
+	GroupID    string `json:"g"`
+	ArtifactID string `json:"a"`
+	// core=gav returns the version in "v"; "latestVersion" only exists on the non-gav aggregated core.
+	Version      string `json:"v"`
 	Timestamp    int64  `json:"timestamp"`
 	VersionCount int    `json:"versionCount"`
 }

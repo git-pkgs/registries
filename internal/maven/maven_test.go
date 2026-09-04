@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/git-pkgs/registries/internal/core"
@@ -138,6 +139,40 @@ func TestFetchVersions(t *testing.T) {
 	}
 	if versions[0].PublishedAt.IsZero() {
 		t.Error("expected non-zero published time")
+	}
+}
+
+func TestFetchVersionsParsesRealSolrGavShape(t *testing.T) {
+	const body = `{"responseHeader":{"status":0},"response":{"numFound":3,"start":0,"docs":[
+		{"id":"org.slf4j:slf4j-api:2.0.17","g":"org.slf4j","a":"slf4j-api","v":"2.0.17","p":"jar","timestamp":1740501794416},
+		{"id":"org.slf4j:slf4j-api:2.0.16","g":"org.slf4j","a":"slf4j-api","v":"2.0.16","p":"jar","timestamp":1725000000000},
+		{"id":"org.slf4j:slf4j-api:1.7.36","g":"org.slf4j","a":"slf4j-api","v":"1.7.36","p":"jar","timestamp":1645000000000}
+	]}}`
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/solrsearch/select", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(body))
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	reg := New(server.URL, core.DefaultClient())
+	reg.searchURL = server.URL
+
+	versions, err := reg.FetchVersions(context.Background(), "org.slf4j:slf4j-api")
+	if err != nil {
+		t.Fatalf("FetchVersions failed: %v", err)
+	}
+	got := make([]string, len(versions))
+	for i, v := range versions {
+		if v.Number == "" {
+			t.Fatalf("version %d has empty Number - searchDoc is not reading the Solr \"v\" field", i)
+		}
+		got[i] = v.Number
+	}
+	want := []string{"2.0.17", "2.0.16", "1.7.36"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("versions = %v, want %v", got, want)
 	}
 }
 
