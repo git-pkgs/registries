@@ -89,7 +89,7 @@ type versionInfoResponse struct {
 func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package, error) {
 	url := fmt.Sprintf("%s/pypi/%s/json", r.baseURL, url.PathEscape(name))
 
-	var resp packageResponse
+	var resp versionInfoResponse
 	if err := r.client.GetJSON(ctx, url, &resp); err != nil {
 		if httpErr, ok := err.(*core.HTTPError); ok && httpErr.IsNotFound() {
 			return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name}
