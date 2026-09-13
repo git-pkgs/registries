@@ -58,6 +58,12 @@ func FetchVersionFromPURL(ctx context.Context, purlStr string, client *Client) (
 		return nil, err
 	}
 
+	if fetcher, ok := reg.(interface {
+		FetchVersion(context.Context, string, string) (*Version, error)
+	}); ok {
+		return fetcher.FetchVersion(ctx, p.FullName(), p.Version)
+	}
+
 	versions, err := reg.FetchVersions(ctx, p.FullName())
 	if err != nil {
 		return nil, err

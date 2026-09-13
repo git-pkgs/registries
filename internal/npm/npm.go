@@ -51,16 +51,16 @@ func (r *Registry) URLs() core.URLBuilder { //nolint:ireturn
 	return r.urls
 }
 
-type packageResponse struct {
-	ID          string                 `json:"_id"`
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Homepage    interface{}            `json:"homepage"`
-	Repository  interface{}            `json:"repository"`
-	Versions    map[string]versionInfo `json:"versions"`
-	Time        map[string]string      `json:"time"`
-	Maintainers []maintainerInfo       `json:"maintainers"`
-	DistTags    map[string]string      `json:"dist-tags"`
+type packageResponse[V any] struct {
+	ID          string            `json:"_id"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Homepage    interface{}       `json:"homepage"`
+	Repository  interface{}       `json:"repository"`
+	Versions    map[string]V      `json:"versions"`
+	Time        map[string]string `json:"time"`
+	Maintainers []maintainerInfo  `json:"maintainers"`
+	DistTags    map[string]string `json:"dist-tags"`
 }
 
 type versionInfo struct {
@@ -170,7 +170,7 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 	escapedName := url.PathEscape(name)
 	url := fmt.Sprintf("%s/%s", r.baseURL, escapedName)
 
-	var resp packageResponse
+	var resp packageResponse[json.RawMessage]
 	if err := r.client.GetJSON(ctx, url, &resp); err != nil {
 		if httpErr, ok := err.(*core.HTTPError); ok && httpErr.IsNotFound() {
 			return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name}
@@ -179,13 +179,20 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 	}
 
 	latestVersion := resp.DistTags["latest"]
-	var latest versionInfo
+	var latestData json.RawMessage
 	if latestVersion != "" {
-		latest = resp.Versions[latestVersion]
+		latestData = resp.Versions[latestVersion]
 	} else if len(resp.Versions) > 0 {
 		for _, v := range resp.Versions {
-			latest = v
+			latestData = v
 			break
+		}
+	}
+
+	var latest versionInfo
+	if len(latestData) > 0 {
+		if err := json.Unmarshal(latestData, &latest); err != nil {
+			return nil, err
 		}
 	}
 
@@ -211,7 +218,7 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 	escapedName := url.PathEscape(name)
 	url := fmt.Sprintf("%s/%s", r.baseURL, escapedName)
 
-	var resp packageResponse
+	var resp packageResponse[versionInfo]
 	if err := r.client.GetJSON(ctx, url, &resp); err != nil {
 		if httpErr, ok := err.(*core.HTTPError); ok && httpErr.IsNotFound() {
 			return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name}
@@ -221,48 +228,74 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 
 	versions := make([]core.Version, 0, len(resp.Versions))
 	for num, v := range resp.Versions {
-		var publishedAt time.Time
-		if timeStr, ok := resp.Time[num]; ok {
-			publishedAt, _ = time.Parse(time.RFC3339, timeStr)
-		}
-
-		var status core.VersionStatus
-		if v.Deprecated != "" {
-			status = core.StatusDeprecated
-		}
-
-		integrity := v.Dist.Integrity
-		if integrity == "" && v.Dist.Shasum != "" {
-			integrity = "sha1-" + v.Dist.Shasum
-		}
-
-		versions = append(versions, core.Version{
-			Number:      num,
-			PublishedAt: publishedAt,
-			Licenses:    core.ExtractLicense(v.License),
-			Integrity:   integrity,
-			Status:      status,
-			Metadata: map[string]any{
-				"deprecated":        string(v.Deprecated),
-				"dist":              v.Dist,
-				"engines":           v.Engines,
-				"_npmUser":          v.NpmUser,
-				"tarball":           v.Dist.Tarball,
-				"npm:attestations":  v.Dist.Attestations,
-				"npm:signatures":    v.Dist.Signatures,
-				"npm:contentPolicy": v.ContentPolicy,
-			},
-		})
+		versions = append(versions, makeVersion(num, v, resp.Time[num]))
 	}
 
 	return versions, nil
+}
+
+// FetchVersion retrieves one release while retaining packument publication times.
+func (r *Registry) FetchVersion(ctx context.Context, name, version string) (*core.Version, error) {
+	endpoint := fmt.Sprintf("%s/%s", r.baseURL, url.PathEscape(name))
+	var resp packageResponse[json.RawMessage]
+	if err := r.client.GetJSON(ctx, endpoint, &resp); err != nil {
+		if httpErr, ok := err.(*core.HTTPError); ok && httpErr.IsNotFound() {
+			return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name}
+		}
+		return nil, err
+	}
+	data, ok := resp.Versions[version]
+	if !ok {
+		return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name, Version: version}
+	}
+	var info versionInfo
+	if err := json.Unmarshal(data, &info); err != nil {
+		return nil, err
+	}
+	result := makeVersion(version, info, resp.Time[version])
+	return &result, nil
+}
+
+func makeVersion(num string, v versionInfo, timeStr string) core.Version {
+	var publishedAt time.Time
+	if timeStr != "" {
+		publishedAt, _ = time.Parse(time.RFC3339, timeStr)
+	}
+
+	var status core.VersionStatus
+	if v.Deprecated != "" {
+		status = core.StatusDeprecated
+	}
+
+	integrity := v.Dist.Integrity
+	if integrity == "" && v.Dist.Shasum != "" {
+		integrity = "sha1-" + v.Dist.Shasum
+	}
+
+	return core.Version{
+		Number:      num,
+		PublishedAt: publishedAt,
+		Licenses:    core.ExtractLicense(v.License),
+		Integrity:   integrity,
+		Status:      status,
+		Metadata: map[string]any{
+			"deprecated":        string(v.Deprecated),
+			"dist":              v.Dist,
+			"engines":           v.Engines,
+			"_npmUser":          v.NpmUser,
+			"tarball":           v.Dist.Tarball,
+			"npm:attestations":  v.Dist.Attestations,
+			"npm:signatures":    v.Dist.Signatures,
+			"npm:contentPolicy": v.ContentPolicy,
+		},
+	}
 }
 
 func (r *Registry) FetchDependencies(ctx context.Context, name, version string) ([]core.Dependency, error) {
 	escapedName := url.PathEscape(name)
 	url := fmt.Sprintf("%s/%s", r.baseURL, escapedName)
 
-	var resp packageResponse
+	var resp packageResponse[json.RawMessage]
 	if err := r.client.GetJSON(ctx, url, &resp); err != nil {
 		if httpErr, ok := err.(*core.HTTPError); ok && httpErr.IsNotFound() {
 			return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name}
@@ -270,9 +303,13 @@ func (r *Registry) FetchDependencies(ctx context.Context, name, version string) 
 		return nil, err
 	}
 
-	v, ok := resp.Versions[version]
+	data, ok := resp.Versions[version]
 	if !ok {
 		return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name, Version: version}
+	}
+	var v versionInfo
+	if err := json.Unmarshal(data, &v); err != nil {
+		return nil, err
 	}
 
 	var deps []core.Dependency
@@ -309,7 +346,7 @@ func (r *Registry) FetchMaintainers(ctx context.Context, name string) ([]core.Ma
 	escapedName := url.PathEscape(name)
 	url := fmt.Sprintf("%s/%s", r.baseURL, escapedName)
 
-	var resp packageResponse
+	var resp packageResponse[json.RawMessage]
 	if err := r.client.GetJSON(ctx, url, &resp); err != nil {
 		if httpErr, ok := err.(*core.HTTPError); ok && httpErr.IsNotFound() {
 			return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name}
