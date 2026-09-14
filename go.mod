@@ -11,7 +11,7 @@ require (
 	github.com/git-pkgs/pom v0.1.7
 	github.com/git-pkgs/purl v0.1.20
 	github.com/git-pkgs/spdx v0.3.2
-	github.com/git-pkgs/vers v0.7.0
+	github.com/git-pkgs/vers v0.7.1
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/rs/dnscache v0.0.0-20230804202142-fc85eb664529
 	github.com/rubyist/circuitbreaker v2.2.1+incompatible
