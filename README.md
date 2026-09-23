@@ -493,3 +493,7 @@ The library makes direct HTTP requests to registry APIs. It doesn't read package
 2. Pass the URL explicitly when creating a registry client
 
 Authentication for private registries isn't currently supported. Unauthenticated endpoints work, but registries requiring tokens or credentials will fail.
+
+## License
+
+[MIT](LICENSE).
