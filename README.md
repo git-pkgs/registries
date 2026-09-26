@@ -333,6 +333,8 @@ statusCode, err := c.Head(ctx, "https://registry.npmjs.org/lodash")
 
 The `fetch` sub-package provides streaming artifact downloads with retry, circuit breaking, DNS caching, and URL resolution.
 
+Under TinyGo, pass a host-compatible `*http.Client` through `fetch.WithHTTPClient`; the default fetch transport returns `errors.ErrUnsupported`. Registry API clients also accept a supplied client through `registries.WithHTTPClient`. The host must enforce address and redirect restrictions. `safehttp.New` and `WithSafeHTTP` return clients whose requests fail with `errors.ErrUnsupported`, since TinyGo transports bypass their dial-time address checks. The standalone IP-checking functions remain available. Native Go retains DNS caching and transport protection.
+
 ### Fetching artifacts
 
 ```go
