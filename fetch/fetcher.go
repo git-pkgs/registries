@@ -9,32 +9,21 @@ import (
 	"io"
 	"math"
 	"math/rand"
-	"net"
 	"net/http"
 	"strconv"
 	"time"
-
-	"github.com/rs/dnscache"
 
 	"github.com/git-pkgs/registries/safehttp"
 )
 
 const (
-	dnsRefreshInterval    = 5 * time.Minute
-	dialTimeout           = 30 * time.Second
-	dialKeepAlive         = 30 * time.Second
-	httpClientTimeout     = 5 * time.Minute
-	responseHeaderTimeout = 60 * time.Second
-	maxIdleConns          = 100
-	maxIdleConnsPerHost   = 10
-	idleConnTimeout       = 90 * time.Second
-	tlsHandshakeTimeout   = 10 * time.Second
-	defaultMaxRetries     = 3
-	defaultBaseDelay      = 500 * time.Millisecond
-	backoffBase           = 2
-	jitterFactor          = 0.1
-	serverErrThreshold    = 500
-	maxErrBodySize        = 1024
+	httpClientTimeout  = 5 * time.Minute
+	defaultMaxRetries  = 3
+	defaultBaseDelay   = 500 * time.Millisecond
+	backoffBase        = 2
+	jitterFactor       = 0.1
+	serverErrThreshold = 500
+	maxErrBodySize     = 1024
 )
 
 var (
@@ -122,79 +111,14 @@ func WithAllowPrivateHosts(hosts ...string) Option {
 
 // NewFetcher creates a new Fetcher with the given options.
 // Callers should invoke Close when done to release the DNS refresh goroutine.
+// Under TinyGo, requests require WithHTTPClient.
 func NewFetcher(opts ...Option) *Fetcher {
-	resolver := &dnscache.Resolver{}
-	stop := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(dnsRefreshInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				resolver.Refresh(true)
-			case <-stop:
-				return
-			}
-		}
-	}()
-
-	dialer := &net.Dialer{
-		Timeout:   dialTimeout,
-		KeepAlive: dialKeepAlive,
-	}
-
-	var f *Fetcher
-	f = &Fetcher{
-		client: &http.Client{
-			Timeout: httpClientTimeout,
-			Transport: &http.Transport{
-				Proxy: http.ProxyFromEnvironment,
-				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-					host, port, err := net.SplitHostPort(addr)
-					if err != nil {
-						return nil, err
-					}
-					ips, err := resolver.LookupHost(ctx, host)
-					if err != nil {
-						return nil, err
-					}
-					// Gate every resolved IP against the safehttp block
-					// list (loopback, RFC1918, CGNAT, link-local, ...)
-					// before dialing. The dial is to the resolved IP
-					// directly so a rebind between gate and connect
-					// cannot escape.
-					var lastErr error
-					for _, ip := range ips {
-						if parsed := net.ParseIP(ip); parsed != nil {
-							if err := f.ipChecker.Check(host, parsed); err != nil {
-								lastErr = err
-								continue
-							}
-						}
-						conn, derr := dialer.DialContext(ctx, network, net.JoinHostPort(ip, port))
-						if derr == nil {
-							return conn, nil
-						}
-						lastErr = derr
-					}
-					if lastErr == nil {
-						return nil, fmt.Errorf("no IPs resolved for %s", host)
-					}
-					return nil, fmt.Errorf("dialing %s: %w", host, lastErr)
-				},
-				MaxIdleConns:          maxIdleConns,
-				MaxIdleConnsPerHost:   maxIdleConnsPerHost,
-				IdleConnTimeout:       idleConnTimeout,
-				TLSHandshakeTimeout:   tlsHandshakeTimeout,
-				ResponseHeaderTimeout: responseHeaderTimeout,
-				ExpectContinueTimeout: 1 * time.Second,
-			},
-		},
+	f := &Fetcher{
 		userAgent:  "git-pkgs-proxy/1.0",
 		maxRetries: defaultMaxRetries,
 		baseDelay:  defaultBaseDelay,
-		stop:       stop,
 	}
+	f.initHTTPClient()
 	for _, opt := range opts {
 		opt(f)
 	}
