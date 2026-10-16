@@ -52,10 +52,12 @@ func New(ecosystem string, baseURL string, client *Client) (Registry, error) { /
 	mu.RLock()
 	factory, ok := factories[ecosystem]
 	defaultURL := defaults[ecosystem]
+	registered := len(factories)
 	mu.RUnlock()
 
 	if !ok {
-		return nil, fmt.Errorf("unknown ecosystem: %s", ecosystem)
+		return nil, fmt.Errorf("unknown ecosystem %q (%d registered; import _ %q or the specific ecosystem package)",
+			ecosystem, registered, "github.com/git-pkgs/registries/all")
 	}
 
 	if baseURL == "" {
