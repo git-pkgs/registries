@@ -1,6 +1,6 @@
 # registries
 
-Go library for fetching package metadata from registry APIs. Supports 27 ecosystems with a unified interface. Also provides sub-packages for HTTP client usage (`client/`) and streaming artifact downloads (`fetch/`).
+Go library for fetching package metadata from registry APIs. Supports 28 ecosystems with a unified interface. Also provides sub-packages for HTTP client usage (`client/`) and streaming artifact downloads (`fetch/`).
 
 ## Installation
 
@@ -134,6 +134,7 @@ packages = registries.BulkFetchPackagesWithConcurrency(ctx, purls, nil, 5)
 | Maven | `pkg:maven/org.apache.commons/commons-lang3@3.12.0` |
 | RubyGems | `pkg:gem/rails@7.1.0` |
 | Terraform | `pkg:terraform/hashicorp/consul/aws@0.11.0` |
+| Alpine | `pkg:apk/alpine/curl@8.22.0-r0?arch=x86_64&repository_url=https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64` |
 
 ## Direct Registry Usage
 
@@ -193,6 +194,9 @@ import _ "github.com/git-pkgs/registries/all"
 | Deno | `deno` | https://apiland.deno.dev |
 | Terraform | `terraform` | https://registry.terraform.io |
 | Swift | `swift` | URL required |
+| Alpine | `apk` | URL required |
+
+The Alpine URL is one repository architecture directory, such as `https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64`, or the `APKINDEX.tar.gz` inside it. The client doesn't pick a release, component or architecture from a mirror root. It reads v2 `APKINDEX.tar.gz` indexes. When a directory serves a v3 `Packages.adb`, the client returns an error rather than reading the v2 index.
 
 ### Swift registries
 
