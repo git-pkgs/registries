@@ -130,7 +130,7 @@ func (cbf *CircuitBreakerFetcher) FetchWithHeaders(ctx context.Context, fetchURL
 	var fetchErr error
 	err := breaker.Call(func() error {
 		artifact, fetchErr = cbf.fetcher.FetchWithHeaders(ctx, fetchURL, headers)
-		if errors.Is(fetchErr, ErrNotFound) {
+		if errors.Is(fetchErr, ErrNotFound) || errors.Is(fetchErr, ErrArtifactTooLarge) {
 			return nil
 		}
 		return fetchErr
@@ -157,7 +157,7 @@ func (cbf *CircuitBreakerFetcher) FetchObservedWithHeaders(ctx context.Context, 
 	var fetchErr error
 	err := breaker.Call(func() error {
 		artifact, fetchErr = cbf.fetcher.FetchObservedWithHeaders(ctx, fetchURL, headers)
-		if errors.Is(fetchErr, ErrNotFound) {
+		if errors.Is(fetchErr, ErrNotFound) || errors.Is(fetchErr, ErrArtifactTooLarge) {
 			return nil
 		}
 		return fetchErr

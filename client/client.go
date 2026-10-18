@@ -4,11 +4,11 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"math"
 	"math/rand"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/git-pkgs/registries/safehttp"
@@ -90,6 +90,13 @@ func (c *Client) GetBody(ctx context.Context, url string) ([]byte, error) {
 		}
 
 		lastErr = err
+		if errors.Is(err, ErrUpstreamHeld) {
+			return nil, err
+		}
+		var rateErr *RateLimitError
+		if errors.As(err, &rateErr) {
+			return nil, err
+		}
 
 		var httpErr *HTTPError
 		if ok := isHTTPError(err, &httpErr); ok {
@@ -133,10 +140,12 @@ func (c *Client) doRequest(ctx context.Context, url string) ([]byte, error) {
 			Body:       string(body),
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
-			if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
-				if seconds, err := strconv.Atoi(retryAfter); err == nil {
-					return nil, &RateLimitError{RetryAfter: seconds}
+			if delay, ok := parseRetryAfter(resp.Header.Get("Retry-After"), time.Now()); ok {
+				seconds := delay / time.Second
+				if delay%time.Second != 0 {
+					seconds++
 				}
+				return nil, &RateLimitError{RetryAfter: int(seconds)}
 			}
 		}
 		return nil, httpErr

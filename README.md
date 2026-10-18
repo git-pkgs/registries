@@ -296,7 +296,7 @@ The default client includes:
 
 - 30 second timeout
 - 5 retries with exponential backoff (50ms base, 10% jitter)
-- Automatic retry on 429 and 5xx responses
+- Automatic retry on 429 without a usable Retry-After and on 5xx responses
 
 Custom client via the top-level package:
 
@@ -329,6 +329,19 @@ body, err := c.GetBody(ctx, "https://crates.io/api/v1/crates/serde")
 statusCode, err := c.Head(ctx, "https://registry.npmjs.org/lodash")
 ```
 
+`client.NewRateLimitGate(transport)` optionally holds requests by host after a
+429, or a 503 with Retry-After. The first response passes through; later requests
+fail locally with `*client.HeldError`, matching `client.ErrUpstreamHeld`.
+`Held(url)` supports prechecks and `Holds()` reports active holds. Share one gate
+between metadata and artifact HTTP clients to apply the same holds to both.
+
+The gate accepts delay seconds and HTTP dates, caps header delays at one hour,
+and doubles missing or unusable delays from one minute up to fifteen minutes.
+`OnHold` and `OnRelease` callbacks support caller-owned logging and metrics;
+configure them before concurrent use. Metadata clients return held errors and
+429 responses with usable Retry-After immediately. `RateLimitError.RetryAfter`
+reports seconds, rounded up for HTTP dates and capped to fit a 32-bit integer.
+
 ## Artifact Downloads (`fetch/`)
 
 The `fetch` sub-package provides streaming artifact downloads with retry, circuit breaking, DNS caching, and URL resolution.
@@ -359,6 +372,14 @@ io.Copy(dst, artifact.Body)
 ```
 
 The fetcher uses DNS caching (5-minute refresh), connection pooling, and a 5-minute timeout suited for large artifacts. It retries on rate limits and server errors with exponential backoff and jitter.
+
+Use `fetch.WithMaxArtifactSize(bytes)` to reject oversized declared bodies before
+reading and enforce the same limit while streaming unknown-length bodies. Errors
+match `fetch.ErrArtifactTooLarge`. Bodies exactly at the limit are accepted;
+detecting overflow consumes at most one extra byte. Zero or negative limits leave
+downloads unlimited. The option also covers observed fetches: rejected bodies
+never produce a completed observation or content digests. HEAD requests still
+report the upstream size, and size rejections do not trip the circuit breaker.
 
 ### Observing artifact responses
 

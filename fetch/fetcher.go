@@ -49,14 +49,15 @@ type FetcherInterface interface {
 
 // Fetcher downloads artifacts from upstream registries.
 type Fetcher struct {
-	client       *http.Client
-	userAgent    string
-	maxRetries   int
-	baseDelay    time.Duration
-	authFn       func(url string) (headerName, headerValue string)
-	safeHTTPOpts safehttp.Options
-	ipChecker    *safehttp.HostIPChecker
-	stop         chan struct{}
+	client          *http.Client
+	userAgent       string
+	maxRetries      int
+	maxArtifactSize int64
+	baseDelay       time.Duration
+	authFn          func(url string) (headerName, headerValue string)
+	safeHTTPOpts    safehttp.Options
+	ipChecker       *safehttp.HostIPChecker
+	stop            chan struct{}
 }
 
 // Option configures a Fetcher.
@@ -255,6 +256,9 @@ func (f *Fetcher) doFetch(ctx context.Context, url string, headers http.Header, 
 			ContentType: resp.Header.Get("Content-Type"),
 			ETag:        resp.Header.Get("ETag"),
 		}
+		if err := f.limitArtifact(artifact); err != nil {
+			return nil, nil, err
+		}
 		if !observe {
 			return artifact, nil, nil
 		}
@@ -268,7 +272,7 @@ func (f *Fetcher) doFetch(ctx context.Context, url string, headers http.Header, 
 			DeclaredSize: size,
 			MediaType:    resp.Header.Get("Content-Type"),
 		}
-		artifact.Body = newObservedBody(resp.Body, observation)
+		artifact.Body = newObservedBody(artifact.Body, observation)
 		return artifact, observation, nil
 
 	case resp.StatusCode == http.StatusNotFound:
