@@ -4,6 +4,8 @@ package packagist
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -176,12 +178,22 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 			status = core.StatusDeprecated
 		}
 
+		var artifacts []core.Artifact
+		if v.Dist.URL != "" {
+			artifacts = []core.Artifact{{
+				URL:       v.Dist.URL,
+				Filename:  distFilename(v.Dist.URL, v.Dist.Type),
+				Integrity: integrity,
+			}}
+		}
+
 		versions = append(versions, core.Version{
 			Number:      v.Version,
 			PublishedAt: publishedAt,
 			Licenses:    strings.Join(v.License, ","),
 			Integrity:   integrity,
 			Status:      status,
+			Artifacts:   artifacts,
 			Metadata: map[string]any{
 				"dist_url":  v.Dist.URL,
 				"dist_type": v.Dist.Type,
@@ -190,6 +202,20 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 	}
 
 	return versions, nil
+}
+
+// distFilename is the last path segment of a dist URL. GitHub zipball URLs
+// end in a bare commit hash, so zip dists without an extension get ".zip".
+func distFilename(rawURL, distType string) string {
+	name := rawURL
+	if u, err := url.Parse(rawURL); err == nil {
+		name = u.Path
+	}
+	name = path.Base(name)
+	if path.Ext(name) == "" && distType == "zip" {
+		name += ".zip"
+	}
+	return name
 }
 
 func (r *Registry) FetchDependencies(ctx context.Context, name, version string) ([]core.Dependency, error) {

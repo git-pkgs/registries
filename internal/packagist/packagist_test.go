@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/git-pkgs/registries/internal/core"
@@ -229,5 +230,38 @@ func TestEcosystem(t *testing.T) {
 	reg := New("", nil)
 	if reg.Ecosystem() != "composer" {
 		t.Errorf("expected ecosystem 'composer', got %q", reg.Ecosystem())
+	}
+}
+
+func TestFetchVersionsArtifacts(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"package":{"name":"monolog/monolog","versions":{
+			"3.5.0":{"version":"3.5.0","dist":{"type":"zip","url":"https://api.github.com/repos/Seldaek/monolog/zipball/c915e2634718dbc8a4a15c61b0e62e7a44e14448","shasum":"abc123"}},
+			"3.4.0":{"version":"3.4.0","dist":{"type":"tar","url":"https://example.com/dist/monolog-3.4.0.tar?token=x"}},
+			"dev-main":{"version":"dev-main"}}}}`))
+	}))
+	defer server.Close()
+
+	versions, err := New(server.URL, core.DefaultClient()).FetchVersions(context.Background(), "monolog/monolog")
+	if err != nil {
+		t.Fatalf("FetchVersions failed: %v", err)
+	}
+
+	want := map[string][]core.Artifact{
+		"3.5.0": {{
+			URL:       "https://api.github.com/repos/Seldaek/monolog/zipball/c915e2634718dbc8a4a15c61b0e62e7a44e14448",
+			Filename:  "c915e2634718dbc8a4a15c61b0e62e7a44e14448.zip",
+			Integrity: "sha1-abc123",
+		}},
+		"3.4.0": {{
+			URL:      "https://example.com/dist/monolog-3.4.0.tar?token=x",
+			Filename: "monolog-3.4.0.tar",
+		}},
+		"dev-main": nil,
+	}
+	for _, v := range versions {
+		if !reflect.DeepEqual(v.Artifacts, want[v.Number]) {
+			t.Errorf("%s artifacts = %+v, want %+v", v.Number, v.Artifacts, want[v.Number])
+		}
 	}
 }
