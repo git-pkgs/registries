@@ -15,6 +15,7 @@ import (
 
 	"github.com/cenk/backoff"
 	"github.com/facebookgo/clock"
+	"github.com/git-pkgs/registries/client"
 	circuit "github.com/rubyist/circuitbreaker"
 )
 
@@ -130,7 +131,7 @@ func (cbf *CircuitBreakerFetcher) FetchWithHeaders(ctx context.Context, fetchURL
 	var fetchErr error
 	err := breaker.Call(func() error {
 		artifact, fetchErr = cbf.fetcher.FetchWithHeaders(ctx, fetchURL, headers)
-		if errors.Is(fetchErr, ErrNotFound) || errors.Is(fetchErr, ErrArtifactTooLarge) {
+		if errors.Is(fetchErr, ErrNotFound) || errors.Is(fetchErr, ErrArtifactTooLarge) || errors.Is(fetchErr, client.ErrUpstreamHeld) {
 			return nil
 		}
 		return fetchErr
@@ -157,7 +158,7 @@ func (cbf *CircuitBreakerFetcher) FetchObservedWithHeaders(ctx context.Context, 
 	var fetchErr error
 	err := breaker.Call(func() error {
 		artifact, fetchErr = cbf.fetcher.FetchObservedWithHeaders(ctx, fetchURL, headers)
-		if errors.Is(fetchErr, ErrNotFound) || errors.Is(fetchErr, ErrArtifactTooLarge) {
+		if errors.Is(fetchErr, ErrNotFound) || errors.Is(fetchErr, ErrArtifactTooLarge) || errors.Is(fetchErr, client.ErrUpstreamHeld) {
 			return nil
 		}
 		return fetchErr
@@ -178,7 +179,7 @@ func (cbf *CircuitBreakerFetcher) Head(ctx context.Context, headURL string) (siz
 	var headErr error
 	err = breaker.Call(func() error {
 		size, contentType, headErr = cbf.fetcher.Head(ctx, headURL)
-		if errors.Is(headErr, ErrNotFound) {
+		if errors.Is(headErr, ErrNotFound) || errors.Is(headErr, client.ErrUpstreamHeld) {
 			return nil
 		}
 		return headErr
