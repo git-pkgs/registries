@@ -57,7 +57,16 @@ type ArtifactInfo struct {
 type ResolveOptions struct {
 	Filename  string
 	Integrity string
+	// Qualifiers are PURL qualifiers. Those in selectionQualifiers pick among
+	// the artifacts a registry lists for a version; an artifact that does not
+	// record a qualifier is not ruled out by it. repository_url and channel
+	// choose the registry, which is up to the caller, and are ignored here.
+	Qualifiers map[string]string
 }
+
+// selectionQualifiers are the PURL qualifiers matched against artifact
+// metadata of the same name.
+var selectionQualifiers = []string{"arch", "distro", "subdir", "build"}
 
 // Resolve returns the download URL and filename for a package artifact.
 func (r *Resolver) Resolve(ctx context.Context, ecosystem, name, version string) (*ArtifactInfo, error) {
@@ -207,6 +216,9 @@ func selectArtifact(candidates []registries.Artifact, options ResolveOptions) (*
 		if options.Integrity != "" && !integrityMatches(candidate.Integrity, options.Integrity) {
 			continue
 		}
+		if !qualifiersMatch(candidate.Metadata, options.Qualifiers) {
+			continue
+		}
 		if err := checkMetadataURL(candidate.URL); err != nil {
 			return nil, err
 		}
@@ -218,6 +230,19 @@ func selectArtifact(candidates []registries.Artifact, options ResolveOptions) (*
 		}, nil
 	}
 	return nil, ErrNoMatchingArtifact
+}
+
+func qualifiersMatch(metadata map[string]any, qualifiers map[string]string) bool {
+	for _, key := range selectionQualifiers {
+		want := qualifiers[key]
+		if want == "" {
+			continue
+		}
+		if got, ok := metadata[key].(string); ok && got != "" && got != want {
+			return false
+		}
+	}
+	return true
 }
 
 func matchSingleArtifact(info *ArtifactInfo, options ResolveOptions, err error) (*ArtifactInfo, error) {

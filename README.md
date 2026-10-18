@@ -478,6 +478,14 @@ info, err := resolver.Resolve(ctx, "cargo", "serde", "1.0.0")
 // info.Integrity may be populated for metadata-resolved URLs
 ```
 
+When a version has several files, `ResolveWithOptions` picks one by PURL qualifiers. `arch`, `distro`, `subdir` and `build` are matched against artifact metadata, and an artifact that doesn't record a qualifier isn't ruled out by it. `repository_url` and `channel` are ignored: register a registry for that URL instead.
+
+```go
+info, err := resolver.ResolveWithOptions(ctx, "conda", "zlib", "1.3.1", fetch.ResolveOptions{
+	Qualifiers: map[string]string{"subdir": "osx-arm64"},
+})
+```
+
 The resolver also works without a registered registry for ecosystems with predictable URL patterns:
 
 ```go
