@@ -4,6 +4,7 @@ package conda
 import (
 	"context"
 	"fmt"
+	"path"
 	"strings"
 	"time"
 
@@ -74,25 +75,33 @@ type packageResponse struct {
 	Versions      []string   `json:"versions"`
 	LatestVersion string     `json:"latest_version"`
 	Files         []fileInfo `json:"files"`
-	Owner         string     `json:"owner"`
+	Owner         ownerInfo  `json:"owner"`
 	PublicAccess  bool       `json:"public_access"`
 }
 
+type ownerInfo struct {
+	Login string `json:"login"`
+	Name  string `json:"name"`
+}
+
 type fileInfo struct {
-	Version    string    `json:"version"`
-	Basename   string    `json:"basename"`
-	Attrs      fileAttrs `json:"attrs"`
-	UploadTime int64     `json:"upload_time"`
-	MD5        string    `json:"md5"`
-	SHA256     string    `json:"sha256"`
-	Size       int64     `json:"size"`
-	Ndownloads int64     `json:"ndownloads"`
+	Version     string    `json:"version"`
+	Basename    string    `json:"basename"`
+	DownloadURL string    `json:"download_url"`
+	Attrs       fileAttrs `json:"attrs"`
+	UploadTime  string    `json:"upload_time"`
+	MD5         string    `json:"md5"`
+	SHA256      string    `json:"sha256"`
+	Size        int64     `json:"size"`
+	Ndownloads  int64     `json:"ndownloads"`
 }
 
 type fileAttrs struct {
 	Depends     []string `json:"depends"`
 	Arch        string   `json:"arch"`
 	Platform    string   `json:"platform"`
+	Subdir      string   `json:"subdir"`
+	Build       string   `json:"build"`
 	BuildNumber int      `json:"build_number"`
 }
 
@@ -141,7 +150,7 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 		LatestVersion: resp.LatestVersion,
 		Metadata: map[string]any{
 			"channel":     channel,
-			"owner":       resp.Owner,
+			"owner":       resp.Owner.Login,
 			"doc_url":     resp.DocURL,
 			"license_url": resp.LicenseURL,
 		},
@@ -167,20 +176,11 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 	// Build version info from files
 	versionMap := make(map[string]*core.Version)
 	for _, f := range resp.Files {
-		if _, exists := versionMap[f.Version]; !exists {
-			var publishedAt time.Time
-			if f.UploadTime > 0 {
-				publishedAt = time.Unix(f.UploadTime, 0)
-			}
-
-			var integrity string
-			if f.SHA256 != "" {
-				integrity = "sha256-" + f.SHA256
-			} else if f.MD5 != "" {
-				integrity = "md5-" + f.MD5
-			}
-
-			versionMap[f.Version] = &core.Version{
+		integrity := fileIntegrity(f)
+		ver, exists := versionMap[f.Version]
+		if !exists {
+			publishedAt, _ := time.Parse(uploadTimeLayout, f.UploadTime)
+			ver = &core.Version{
 				Number:      f.Version,
 				PublishedAt: publishedAt,
 				Integrity:   integrity,
@@ -189,6 +189,10 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 					"downloads": f.Ndownloads,
 				},
 			}
+			versionMap[f.Version] = ver
+		}
+		if artifact, ok := fileArtifact(f, integrity); ok {
+			ver.Artifacts = append(ver.Artifacts, artifact)
 		}
 	}
 
@@ -203,6 +207,45 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 	}
 
 	return versions, nil
+}
+
+// uploadTimeLayout is the format of upload_time in anaconda.org file records,
+// e.g. "2026-07-17 01:07:03.989000+00:00".
+const uploadTimeLayout = "2006-01-02 15:04:05.999999-07:00"
+
+func fileIntegrity(f fileInfo) string {
+	if f.SHA256 != "" {
+		return "sha256-" + f.SHA256
+	}
+	if f.MD5 != "" {
+		return "md5-" + f.MD5
+	}
+	return ""
+}
+
+// fileArtifact describes one build of a version. anaconda.org returns
+// scheme-relative download URLs ("//api.anaconda.org/download/...").
+func fileArtifact(f fileInfo, integrity string) (core.Artifact, bool) {
+	downloadURL := f.DownloadURL
+	if downloadURL == "" {
+		return core.Artifact{}, false
+	}
+	if strings.HasPrefix(downloadURL, "//") {
+		downloadURL = "https:" + downloadURL
+	}
+	return core.Artifact{
+		URL:       downloadURL,
+		Filename:  path.Base(f.Basename),
+		Integrity: integrity,
+		Size:      f.Size,
+		Metadata: map[string]any{
+			"subdir":       f.Attrs.Subdir,
+			"build":        f.Attrs.Build,
+			"build_number": f.Attrs.BuildNumber,
+			"arch":         f.Attrs.Arch,
+			"platform":     f.Attrs.Platform,
+		},
+	}, true
 }
 
 func (r *Registry) FetchDependencies(ctx context.Context, name, version string) ([]core.Dependency, error) {
@@ -270,12 +313,13 @@ func (r *Registry) FetchMaintainers(ctx context.Context, name string) ([]core.Ma
 		return nil, err
 	}
 
-	if resp.Owner == "" {
+	if resp.Owner.Login == "" {
 		return nil, nil
 	}
 
 	return []core.Maintainer{{
-		Login: resp.Owner,
+		Login: resp.Owner.Login,
+		Name:  resp.Owner.Name,
 	}}, nil
 }
 
