@@ -61,8 +61,24 @@ func (c *Client) GetJSON(ctx context.Context, url string, v any) error {
 	return json.Unmarshal(body, v)
 }
 
+// GetJSONWithHeaders fetches a URL with extra request headers, which replace
+// the defaults of the same name, decodes the JSON response into v and returns
+// the response headers.
+func (c *Client) GetJSONWithHeaders(ctx context.Context, url string, header http.Header, v any) (http.Header, error) {
+	body, respHeader, err := c.getBody(ctx, url, header)
+	if err != nil {
+		return nil, err
+	}
+	return respHeader, json.Unmarshal(body, v)
+}
+
 // GetBody fetches a URL and returns the response body.
 func (c *Client) GetBody(ctx context.Context, url string) ([]byte, error) {
+	body, _, err := c.getBody(ctx, url, nil)
+	return body, err
+}
+
+func (c *Client) getBody(ctx context.Context, url string, header http.Header) ([]byte, http.Header, error) {
 	var lastErr error
 
 	for attempt := 0; attempt <= c.MaxRetries; attempt++ {
@@ -73,64 +89,67 @@ func (c *Client) GetBody(ctx context.Context, url string) ([]byte, error) {
 
 			select {
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return nil, nil, ctx.Err()
 			case <-time.After(delay):
 			}
 		}
 
 		if c.RateLimiter != nil {
 			if err := c.RateLimiter.Wait(ctx); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
 
-		body, err := c.doRequest(ctx, url)
+		body, respHeader, err := c.doRequest(ctx, url, header)
 		if err == nil {
-			return body, nil
+			return body, respHeader, nil
 		}
 
 		lastErr = err
 		if errors.Is(err, ErrUpstreamHeld) {
-			return nil, err
+			return nil, nil, err
 		}
 		var rateErr *RateLimitError
 		if errors.As(err, &rateErr) {
-			return nil, err
+			return nil, nil, err
 		}
 
 		var httpErr *HTTPError
 		if ok := isHTTPError(err, &httpErr); ok {
 			if httpErr.StatusCode == http.StatusNotFound {
-				return nil, err
+				return nil, nil, err
 			}
 			if httpErr.StatusCode == http.StatusTooManyRequests || httpErr.StatusCode >= http.StatusInternalServerError {
 				continue
 			}
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
-	return nil, lastErr
+	return nil, nil, lastErr
 }
 
-func (c *Client) doRequest(ctx context.Context, url string) ([]byte, error) {
+func (c *Client) doRequest(ctx context.Context, url string, header http.Header) ([]byte, http.Header, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	req.Header.Set("User-Agent", c.UserAgent)
 	req.Header.Set("Accept", "application/json")
+	for name, values := range header {
+		req.Header[http.CanonicalHeaderKey(name)] = values
+	}
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if resp.StatusCode >= http.StatusBadRequest {
@@ -145,13 +164,13 @@ func (c *Client) doRequest(ctx context.Context, url string) ([]byte, error) {
 				if delay%time.Second != 0 {
 					seconds++
 				}
-				return nil, &RateLimitError{RetryAfter: int(seconds)}
+				return nil, nil, &RateLimitError{RetryAfter: int(seconds)}
 			}
 		}
-		return nil, httpErr
+		return nil, nil, httpErr
 	}
 
-	return body, nil
+	return body, resp.Header, nil
 }
 
 func isHTTPError(err error, target **HTTPError) bool {

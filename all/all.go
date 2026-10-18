@@ -38,5 +38,6 @@ import (
 	_ "github.com/git-pkgs/registries/internal/pub"
 	_ "github.com/git-pkgs/registries/internal/pypi"
 	_ "github.com/git-pkgs/registries/internal/rubygems"
+	_ "github.com/git-pkgs/registries/internal/swift"
 	_ "github.com/git-pkgs/registries/internal/terraform"
 )

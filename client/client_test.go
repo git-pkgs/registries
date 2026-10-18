@@ -115,3 +115,34 @@ func TestResponseWithinLimit(t *testing.T) {
 		t.Fatalf("got %q, want %q", string(body), payload)
 	}
 }
+
+func TestGetJSONWithHeaders(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Values("Accept"); len(got) != 1 || got[0] != "application/vnd.example+json" {
+			t.Errorf("Accept = %v, want only the supplied value", got)
+		}
+		if r.Header.Get("User-Agent") == "" {
+			t.Error("default User-Agent was dropped")
+		}
+		w.Header().Set("Link", `<https://example.com/?page=2>; rel="next"`)
+		_, _ = w.Write([]byte(`{"name":"test"}`))
+	}))
+	defer srv.Close()
+
+	c := DefaultClient()
+	c.MaxRetries = 0
+
+	var result struct {
+		Name string `json:"name"`
+	}
+	header, err := c.GetJSONWithHeaders(context.Background(), srv.URL, http.Header{"accept": {"application/vnd.example+json"}}, &result)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Name != "test" {
+		t.Errorf("got %+v", result)
+	}
+	if header.Get("Link") == "" {
+		t.Error("response headers not returned")
+	}
+}

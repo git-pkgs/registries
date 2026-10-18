@@ -134,6 +134,7 @@ packages = registries.BulkFetchPackagesWithConcurrency(ctx, purls, nil, 5)
 | Maven | `pkg:maven/org.apache.commons/commons-lang3@3.12.0` |
 | RubyGems | `pkg:gem/rails@7.1.0` |
 | Terraform | `pkg:terraform/hashicorp/consul/aws@0.11.0` |
+| Swift | `pkg:swift/apple/swift-nio@2.65.0?repository_url=https://packages.example.com` |
 
 ## Direct Registry Usage
 
@@ -192,6 +193,9 @@ import _ "github.com/git-pkgs/registries/all"
 | Homebrew | `brew` | https://formulae.brew.sh |
 | Deno | `deno` | https://apiland.deno.dev |
 | Terraform | `terraform` | https://registry.terraform.io |
+| Swift | `swift` | URL required |
+
+Swift package names are a registry scope and name, written `scope/name` (the PURL namespace and name) or `scope.name`. A host-style PURL namespace such as `pkg:swift/github.com/apple/swift-argument-parser` has no defined mapping to a registry scope, so the Swift client rejects it.
 
 ## Types
 

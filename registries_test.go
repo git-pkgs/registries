@@ -17,7 +17,7 @@ import (
 func TestSupportedEcosystems(t *testing.T) {
 	ecosystems := registries.SupportedEcosystems()
 
-	expected := []string{"brew", "cargo", "clojars", "cocoapods", "composer", "conda", "cpan", "cran", "deno", "dub", "elm", "gem", "golang", "hackage", "haxelib", "helm", "hex", "julia", "luarocks", "maven", "nimble", "npm", "nuget", "pub", "pypi", "terraform"}
+	expected := []string{"brew", "cargo", "clojars", "cocoapods", "composer", "conda", "cpan", "cran", "deno", "dub", "elm", "gem", "golang", "hackage", "haxelib", "helm", "hex", "julia", "luarocks", "maven", "nimble", "npm", "nuget", "pub", "pypi", "swift", "terraform"}
 	sort.Strings(ecosystems)
 
 	if len(ecosystems) != len(expected) {
@@ -62,6 +62,7 @@ func TestNew(t *testing.T) {
 		{"deno", false},
 		{"terraform", false},
 		{"helm", true},
+		{"swift", true},
 		{"unknown", true},
 	}
 
@@ -106,6 +107,7 @@ func TestDefaultURL(t *testing.T) {
 		{"deno", "https://apiland.deno.dev"},
 		{"terraform", "https://registry.terraform.io"},
 		{"helm", ""},
+		{"swift", ""},
 	}
 
 	for _, tt := range tests {
@@ -276,5 +278,34 @@ func TestRootClientOptions(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "loopback") {
 		t.Errorf("WithSafeHTTP error %v should mention loopback", err)
+	}
+}
+
+func TestSwiftFromPURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/apple/swift-nio/2.65.0" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"id": "apple.swift-nio", "version": "2.65.0",
+			"resources": [{"name": "source-archive", "type": "application/zip", "checksum": "abc123"}], "metadata": {}}`))
+	}))
+	defer srv.Close()
+
+	v, err := registries.FetchVersionFromPURL(context.Background(), "pkg:swift/apple/swift-nio@2.65.0?repository_url="+srv.URL, nil)
+	if err != nil {
+		t.Fatalf("FetchVersionFromPURL failed: %v", err)
+	}
+	if v.Integrity != "sha256-abc123" {
+		t.Errorf("Integrity = %q, want sha256-abc123", v.Integrity)
+	}
+
+	_, err = registries.FetchVersionFromPURL(context.Background(), "pkg:swift/github.com/apple/swift-argument-parser@1.3.0?repository_url="+srv.URL, nil)
+	if err == nil || !strings.Contains(err.Error(), "registry scope") {
+		t.Errorf("host-style namespace err = %v, want a scope error", err)
+	}
+
+	if _, err := registries.FetchVersionFromPURL(context.Background(), "pkg:swift/apple/swift-nio@2.65.0", nil); err == nil || !strings.Contains(err.Error(), "no registry URL configured") {
+		t.Errorf("missing URL err = %v", err)
 	}
 }
