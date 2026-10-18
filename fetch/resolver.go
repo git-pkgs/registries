@@ -28,16 +28,54 @@ type Registry interface {
 	URLs() client.URLBuilder
 }
 
+// defaultBaseURLs are the public registry hosts used when no registry is
+// registered for an ecosystem and WithBaseURLs does not override them.
+var defaultBaseURLs = map[string]string{
+	"npm":    "https://registry.npmjs.org",
+	"cargo":  "https://static.crates.io/crates",
+	"gem":    "https://rubygems.org",
+	"golang": "https://proxy.golang.org",
+	"hex":    "https://repo.hex.pm",
+	"pub":    "https://pub.dev",
+	"maven":  "https://repo1.maven.org/maven2",
+	"nuget":  "https://api.nuget.org",
+}
+
 // Resolver determines download URLs for package artifacts.
 type Resolver struct {
 	registries map[string]Registry
+	baseURLs   map[string]string
+}
+
+// ResolverOption configures a Resolver.
+type ResolverOption func(*Resolver)
+
+// WithBaseURLs overrides the base URL used for ecosystems resolved without a
+// registered registry, keyed by ecosystem. Ecosystems not in the map keep
+// the public registry host.
+func WithBaseURLs(baseURLs map[string]string) ResolverOption {
+	return func(r *Resolver) {
+		for ecosystem, baseURL := range baseURLs {
+			if baseURL != "" {
+				r.baseURLs[ecosystem] = strings.TrimRight(baseURL, "/")
+			}
+		}
+	}
 }
 
 // NewResolver creates a new URL resolver.
-func NewResolver() *Resolver {
-	return &Resolver{
+func NewResolver(opts ...ResolverOption) *Resolver {
+	r := &Resolver{
 		registries: make(map[string]Registry),
+		baseURLs:   make(map[string]string, len(defaultBaseURLs)),
 	}
+	for ecosystem, baseURL := range defaultBaseURLs {
+		r.baseURLs[ecosystem] = baseURL
+	}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
 }
 
 // RegisterRegistry adds a registry for URL resolution.
@@ -96,6 +134,7 @@ func (r *Resolver) ResolveWithOptions(
 // when no registry client is configured.
 func (r *Resolver) resolveWithoutRegistry(ecosystem, name, version string) (*ArtifactInfo, error) {
 	var url, filename string
+	base := r.baseURLs[ecosystem]
 
 	switch ecosystem {
 	case "npm":
@@ -103,28 +142,28 @@ func (r *Resolver) resolveWithoutRegistry(ecosystem, name, version string) (*Art
 		if idx := strings.LastIndex(name, "/"); idx >= 0 {
 			shortName = name[idx+1:]
 		}
-		url = fmt.Sprintf("https://registry.npmjs.org/%s/-/%s-%s.tgz", name, shortName, version)
+		url = fmt.Sprintf("%s/%s/-/%s-%s.tgz", base, name, shortName, version)
 		filename = fmt.Sprintf("%s-%s.tgz", shortName, version)
 
 	case "cargo":
-		url = fmt.Sprintf("https://static.crates.io/crates/%s/%s-%s.crate", name, name, version)
+		url = fmt.Sprintf("%s/%s/%s-%s.crate", base, name, name, version)
 		filename = fmt.Sprintf("%s-%s.crate", name, version)
 
 	case "gem":
-		url = fmt.Sprintf("https://rubygems.org/downloads/%s-%s.gem", name, version)
+		url = fmt.Sprintf("%s/downloads/%s-%s.gem", base, name, version)
 		filename = fmt.Sprintf("%s-%s.gem", name, version)
 
 	case "golang":
 		encoded := encodeGoModule(name)
-		url = fmt.Sprintf("https://proxy.golang.org/%s/@v/%s.zip", encoded, version)
+		url = fmt.Sprintf("%s/%s/@v/%s.zip", base, encoded, version)
 		filename = fmt.Sprintf("%s@%s.zip", lastPathComponent(name), version)
 
 	case "hex":
-		url = fmt.Sprintf("https://repo.hex.pm/tarballs/%s-%s.tar", name, version)
+		url = fmt.Sprintf("%s/tarballs/%s-%s.tar", base, name, version)
 		filename = fmt.Sprintf("%s-%s.tar", name, version)
 
 	case "pub":
-		url = fmt.Sprintf("https://pub.dev/packages/%s/versions/%s.tar.gz", name, version)
+		url = fmt.Sprintf("%s/packages/%s/versions/%s.tar.gz", base, name, version)
 		filename = fmt.Sprintf("%s-%s.tar.gz", name, version)
 
 	case "maven":
@@ -134,13 +173,13 @@ func (r *Resolver) resolveWithoutRegistry(ecosystem, name, version string) (*Art
 			return nil, fmt.Errorf("invalid maven name format, expected group:artifact")
 		}
 		group = strings.ReplaceAll(group, ".", "/")
-		url = fmt.Sprintf("https://repo1.maven.org/maven2/%s/%s/%s/%s-%s.jar", group, artifact, version, artifact, version)
+		url = fmt.Sprintf("%s/%s/%s/%s/%s-%s.jar", base, group, artifact, version, artifact, version)
 		filename = fmt.Sprintf("%s-%s.jar", artifact, version)
 
 	case "nuget":
 		// NuGet package IDs are case-insensitive, use lowercase
 		lowername := strings.ToLower(name)
-		url = fmt.Sprintf("https://api.nuget.org/v3-flatcontainer/%s/%s/%s.%s.nupkg", lowername, version, lowername, version)
+		url = fmt.Sprintf("%s/v3-flatcontainer/%s/%s/%s.%s.nupkg", base, lowername, version, lowername, version)
 		filename = fmt.Sprintf("%s.%s.nupkg", lowername, version)
 
 	default:

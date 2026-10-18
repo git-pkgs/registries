@@ -94,6 +94,59 @@ func TestResolveWithoutRegistry(t *testing.T) {
 	}
 }
 
+func TestResolveWithBaseURLs(t *testing.T) {
+	r := NewResolver(WithBaseURLs(map[string]string{
+		"npm":    "https://npm.internal/",
+		"cargo":  "https://crates.internal/crates",
+		"gem":    "https://gems.internal",
+		"golang": "https://goproxy.internal",
+		"hex":    "https://hex.internal",
+		"pub":    "https://pub.internal",
+		"maven":  "https://maven.internal/releases",
+		"nuget":  "https://nuget.internal",
+	}))
+
+	tests := []struct {
+		ecosystem string
+		name      string
+		version   string
+		wantURL   string
+	}{
+		{"npm", "@babel/core", "7.23.0", "https://npm.internal/@babel/core/-/core-7.23.0.tgz"},
+		{"cargo", "serde", "1.0.193", "https://crates.internal/crates/serde/serde-1.0.193.crate"},
+		{"gem", "rails", "7.1.2", "https://gems.internal/downloads/rails-7.1.2.gem"},
+		{"golang", "github.com/Azure/azure-sdk-for-go", "v68.0.0", "https://goproxy.internal/github.com/!azure/azure-sdk-for-go/@v/v68.0.0.zip"},
+		{"hex", "phoenix", "1.7.10", "https://hex.internal/tarballs/phoenix-1.7.10.tar"},
+		{"pub", "flutter", "3.16.0", "https://pub.internal/packages/flutter/versions/3.16.0.tar.gz"},
+		{"maven", "com.google.guava:guava", "32.1.3-jre", "https://maven.internal/releases/com/google/guava/guava/32.1.3-jre/guava-32.1.3-jre.jar"},
+		{"nuget", "Newtonsoft.Json", "13.0.3", "https://nuget.internal/v3-flatcontainer/newtonsoft.json/13.0.3/newtonsoft.json.13.0.3.nupkg"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.ecosystem, func(t *testing.T) {
+			info, err := r.Resolve(context.Background(), tt.ecosystem, tt.name, tt.version)
+			if err != nil {
+				t.Fatalf("Resolve failed: %v", err)
+			}
+			if info.URL != tt.wantURL {
+				t.Errorf("URL = %q, want %q", info.URL, tt.wantURL)
+			}
+		})
+	}
+}
+
+func TestResolveWithBaseURLsKeepsDefaultsForOtherEcosystems(t *testing.T) {
+	r := NewResolver(WithBaseURLs(map[string]string{"npm": "https://npm.internal", "cargo": ""}))
+
+	info, err := r.Resolve(context.Background(), "cargo", "serde", "1.0.193")
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+	if want := "https://static.crates.io/crates/serde/serde-1.0.193.crate"; info.URL != want {
+		t.Errorf("URL = %q, want %q", info.URL, want)
+	}
+}
+
 func TestResolveUnsupportedEcosystem(t *testing.T) {
 	r := NewResolver()
 

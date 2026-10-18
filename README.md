@@ -486,6 +486,15 @@ info, _ := resolver.Resolve(ctx, "npm", "lodash", "4.17.21")
 // info.URL = "https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz"
 ```
 
+`WithBaseURLs` points those patterns at a mirror instead of the public host. Ecosystems left out of the map keep their defaults:
+
+```go
+resolver := fetch.NewResolver(fetch.WithBaseURLs(map[string]string{
+	"npm":   "https://npm.mycompany.com",
+	"cargo": "https://crates.mycompany.com/crates",
+}))
+```
+
 ## Private Registries
 
 PURLs with a `repository_url` qualifier automatically use that URL:
