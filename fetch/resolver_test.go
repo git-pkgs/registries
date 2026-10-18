@@ -354,3 +354,64 @@ func TestFilenameFromURL(t *testing.T) {
 		}
 	}
 }
+
+type namedRegistry struct {
+	fakeRegistry
+	ecosystem string
+}
+
+func (n *namedRegistry) Ecosystem() string { return n.ecosystem }
+
+func TestResolveEcosystemAliases(t *testing.T) {
+	for _, ecosystem := range []string{"gem", "rubygems", "RubyGems"} {
+		t.Run(ecosystem, func(t *testing.T) {
+			info, err := NewResolver().Resolve(context.Background(), ecosystem, "rake", "13.2.1")
+			if err != nil {
+				t.Fatalf("Resolve failed: %v", err)
+			}
+			if want := "https://rubygems.org/downloads/rake-13.2.1.gem"; info.URL != want {
+				t.Errorf("URL = %q, want %q", info.URL, want)
+			}
+		})
+	}
+}
+
+func TestResolveRegisteredEcosystemAliases(t *testing.T) {
+	want := "https://repo.packagist.org/dist/monolog/monolog-3.5.0.zip"
+	for _, tt := range []struct{ registered, requested string }{
+		{"composer", "packagist"},
+		{"packagist", "composer"},
+		{"composer", "composer"},
+	} {
+		t.Run(tt.registered+"/"+tt.requested, func(t *testing.T) {
+			r := NewResolver()
+			r.RegisterRegistry(&namedRegistry{
+				ecosystem: tt.registered,
+				fakeRegistry: fakeRegistry{versions: []registries.Version{{
+					Number:   "3.5.0",
+					Metadata: map[string]any{"download_url": want},
+				}}},
+			})
+
+			info, err := r.Resolve(context.Background(), tt.requested, "monolog/monolog", "3.5.0")
+			if err != nil {
+				t.Fatalf("Resolve failed: %v", err)
+			}
+			if info.URL != want {
+				t.Errorf("URL = %q, want %q", info.URL, want)
+			}
+		})
+	}
+}
+
+func TestWithBaseURLsAcceptsEcosystemAliases(t *testing.T) {
+	r := NewResolver(WithBaseURLs(map[string]string{"rubygems": "https://gems.internal"}))
+
+	info, err := r.Resolve(context.Background(), "gem", "rake", "13.2.1")
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+	if want := "https://gems.internal/downloads/rake-13.2.1.gem"; info.URL != want {
+		t.Errorf("URL = %q, want %q", info.URL, want)
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/git-pkgs/purl"
 	"github.com/git-pkgs/registries"
 	"github.com/git-pkgs/registries/client"
 )
@@ -57,7 +58,7 @@ func WithBaseURLs(baseURLs map[string]string) ResolverOption {
 	return func(r *Resolver) {
 		for ecosystem, baseURL := range baseURLs {
 			if baseURL != "" {
-				r.baseURLs[ecosystem] = strings.TrimRight(baseURL, "/")
+				r.baseURLs[purl.EcosystemToPURLType(ecosystem)] = strings.TrimRight(baseURL, "/")
 			}
 		}
 	}
@@ -78,9 +79,10 @@ func NewResolver(opts ...ResolverOption) *Resolver {
 	return r
 }
 
-// RegisterRegistry adds a registry for URL resolution.
+// RegisterRegistry adds a registry for URL resolution. Ecosystem names are
+// matched by PURL type, so "rubygems" and "gem" are the same ecosystem.
 func (r *Resolver) RegisterRegistry(reg Registry) {
-	r.registries[reg.Ecosystem()] = reg
+	r.registries[purl.EcosystemToPURLType(reg.Ecosystem())] = reg
 }
 
 // ArtifactInfo contains information about a downloadable artifact.
@@ -111,6 +113,7 @@ func (r *Resolver) ResolveWithOptions(
 	version string,
 	options ResolveOptions,
 ) (*ArtifactInfo, error) {
+	ecosystem = purl.EcosystemToPURLType(ecosystem)
 	reg, ok := r.registries[ecosystem]
 	if !ok {
 		info, err := r.resolveWithoutRegistry(ecosystem, name, version)
