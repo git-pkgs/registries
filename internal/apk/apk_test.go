@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -306,14 +307,18 @@ func TestProbeErrorIsNotFallback(t *testing.T) {
 
 func TestMalformedIndexes(t *testing.T) {
 	valid := buildIndex(t, realIndex(t))
+	badChecksum := append([]byte(nil), valid...)
+	badChecksum[len(badChecksum)-8] ^= 1
 	tests := map[string][]byte{
-		"not gzip":             []byte("not an index"),
-		"truncated":            valid[:len(valid)/2],
-		"no APKINDEX member":   tarGz(t, "DESCRIPTION", "x"),
-		"line without a field": buildIndex(t, "P:curl\nV:1.0-r0\nnonsense\n"),
-		"record without name":  buildIndex(t, "V:1.0-r0\nA:x86_64\n"),
-		"bad size":             buildIndex(t, "P:curl\nV:1.0-r0\nS:big\n"),
-		"bad build time":       buildIndex(t, "P:curl\nV:1.0-r0\nt:yesterday\n"),
+		"not gzip":              []byte("not an index"),
+		"truncated":             valid[:len(valid)/2],
+		"missing gzip footer":   valid[:len(valid)-8],
+		"corrupt gzip checksum": badChecksum,
+		"no APKINDEX member":    tarGz(t, "DESCRIPTION", "x"),
+		"line without a field":  buildIndex(t, "P:curl\nV:1.0-r0\nnonsense\n"),
+		"record without name":   buildIndex(t, "V:1.0-r0\nA:x86_64\n"),
+		"bad size":              buildIndex(t, "P:curl\nV:1.0-r0\nS:big\n"),
+		"bad build time":        buildIndex(t, "P:curl\nV:1.0-r0\nt:yesterday\n"),
 	}
 	for name, body := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -347,6 +352,26 @@ func tarGz(t *testing.T, name, content string) []byte {
 		t.Fatal(err)
 	}
 	return out.Bytes()
+}
+
+func TestTrailingIndexDataSizeLimit(t *testing.T) {
+	body := bytes.NewBuffer(buildIndex(t, "P:curl\nV:1.0-r0\n"))
+	gz := gzip.NewWriter(body)
+	if _, err := io.Copy(gz, strings.NewReader(strings.Repeat(" ", maxIndexSize))); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(body.Bytes())
+	}))
+	defer server.Close()
+
+	_, err := New(server.URL+"/APKINDEX.tar.gz", core.DefaultClient()).FetchVersions(context.Background(), "curl")
+	if !errors.Is(err, ErrMalformedIndex) || !strings.Contains(err.Error(), "larger than") {
+		t.Errorf("err = %v, want index archive size limit error", err)
+	}
 }
 
 func TestMissingOptionalFields(t *testing.T) {

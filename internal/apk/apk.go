@@ -30,7 +30,7 @@ const (
 	indexV2 = "APKINDEX.tar.gz"
 	indexV3 = "Packages.adb"
 
-	// maxIndexSize bounds the decompressed APKINDEX member. Alpine's
+	// maxIndexSize bounds the decompressed index archive. Alpine's
 	// community index is about 10 MB uncompressed.
 	maxIndexSize = 64 << 20
 	maxLineSize  = 1 << 20
@@ -179,27 +179,36 @@ func parseIndexArchive(data []byte) ([]record, error) {
 	}
 	defer func() { _ = gz.Close() }()
 
-	tr := tar.NewReader(gz)
+	limited := &io.LimitedReader{R: gz, N: maxIndexSize + 1}
+	tr := tar.NewReader(limited)
+	var index []byte
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
-			return nil, fmt.Errorf("%w: no APKINDEX member", ErrMalformedIndex)
+			break
 		}
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrMalformedIndex, err)
 		}
-		if hdr.Name != "APKINDEX" {
+		if hdr.Name != "APKINDEX" || index != nil {
 			continue
 		}
-		index, err := io.ReadAll(io.LimitReader(tr, maxIndexSize+1))
+		index, err = io.ReadAll(tr)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrMalformedIndex, err)
 		}
-		if len(index) > maxIndexSize {
-			return nil, fmt.Errorf("%w: APKINDEX larger than %d bytes", ErrMalformedIndex, maxIndexSize)
-		}
-		return parseIndex(index)
 	}
+	// tar EOF can precede gzip's checksum and size trailer.
+	if _, err := io.Copy(io.Discard, limited); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrMalformedIndex, err)
+	}
+	if limited.N == 0 {
+		return nil, fmt.Errorf("%w: index archive larger than %d bytes", ErrMalformedIndex, maxIndexSize)
+	}
+	if index == nil {
+		return nil, fmt.Errorf("%w: no APKINDEX member", ErrMalformedIndex)
+	}
+	return parseIndex(index)
 }
 
 // parseIndex parses blank-line-separated records of single-letter fields,
