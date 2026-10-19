@@ -186,6 +186,9 @@ func (r *Registry) fetchReleases(ctx context.Context, name string) (map[string]r
 		}
 		next = r.nextPage(next, header)
 	}
+	if next != "" {
+		return nil, fmt.Errorf("swift release listing for %q exceeds %d pages", name, maxPages)
+	}
 	return releases, nil
 }
 

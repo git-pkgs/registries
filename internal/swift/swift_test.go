@@ -3,8 +3,10 @@ package swift
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -134,6 +136,43 @@ func TestFetchVersionsFollowsPagination(t *testing.T) {
 	}
 	if len(versions) != 2 {
 		t.Errorf("got %d versions, want 2 from two same-host pages", len(versions))
+	}
+}
+
+func TestFetchVersionsPaginationLimit(t *testing.T) {
+	for _, pages := range []int{maxPages, maxPages + 1} {
+		t.Run(strconv.Itoa(pages), func(t *testing.T) {
+			requests := 0
+			reg := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+				if page == 0 {
+					page = 1
+				}
+				if page < pages {
+					w.Header().Set("Link", fmt.Sprintf(`<?page=%d>; rel="next"`, page+1))
+				}
+				_, _ = fmt.Fprintf(w, `{"releases":{"1.0.%d":{}}}`, page)
+			})
+
+			versions, err := reg.FetchVersions(context.Background(), "mona/demo")
+			if pages == maxPages {
+				if err != nil || len(versions) != pages {
+					t.Fatalf("FetchVersions returned %d versions, %v", len(versions), err)
+				}
+			} else if err == nil || versions != nil {
+				t.Fatalf("FetchVersions returned %d versions, %v; want no partial results and an error", len(versions), err)
+			}
+			if requests != maxPages {
+				t.Errorf("requests = %d, want %d", requests, maxPages)
+			}
+			if pages > maxPages {
+				pkg, err := reg.FetchPackage(context.Background(), "mona/demo")
+				if err == nil || pkg != nil {
+					t.Errorf("FetchPackage = %+v, %v; want no package and an error", pkg, err)
+				}
+			}
+		})
 	}
 }
 
