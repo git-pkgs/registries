@@ -51,18 +51,6 @@ func (r *Registry) URLs() core.URLBuilder { //nolint:ireturn
 	return r.urls
 }
 
-type packageResponse[V any] struct {
-	ID          string            `json:"_id"`
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
-	Homepage    interface{}       `json:"homepage"`
-	Repository  interface{}       `json:"repository"`
-	Versions    map[string]V      `json:"versions"`
-	Time        map[string]string `json:"time"`
-	Maintainers []maintainerInfo  `json:"maintainers"`
-	DistTags    map[string]string `json:"dist-tags"`
-}
-
 type versionInfo struct {
 	Name         string                 `json:"name"`
 	Version      string                 `json:"version"`
@@ -167,96 +155,250 @@ type maintainerInfo struct {
 }
 
 func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package, error) {
-	escapedName := url.PathEscape(name)
-	url := fmt.Sprintf("%s/%s", r.baseURL, escapedName)
-
-	var resp packageResponse[json.RawMessage]
-	if err := r.client.GetJSON(ctx, url, &resp); err != nil {
-		if httpErr, ok := err.(*core.HTTPError); ok && httpErr.IsNotFound() {
-			return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name}
+	// dist-tags comes before versions in registry.npmjs.org packuments, so
+	// usually only the latest version is decoded. If it hasn't been seen yet,
+	// versions are kept raw until it is.
+	var latest versionInfo
+	var haveLatest bool
+	var pending map[string]json.RawMessage
+	var header *packumentHeader
+	header, err := r.streamPackument(ctx, name, func(h *packumentHeader, number string, dec *json.Decoder) error {
+		if want, ok := h.DistTags["latest"]; ok {
+			if number != want || haveLatest {
+				return skipValue(dec)
+			}
+			haveLatest = true
+			return dec.Decode(&latest)
 		}
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
+			return err
+		}
+		if pending == nil {
+			pending = make(map[string]json.RawMessage)
+		}
+		pending[number] = raw
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
 
-	latestVersion := resp.DistTags["latest"]
-	var latestData json.RawMessage
-	if latestVersion != "" {
-		latestData = resp.Versions[latestVersion]
-	} else if len(resp.Versions) > 0 {
-		for _, v := range resp.Versions {
-			latestData = v
-			break
+	latestVersion := header.DistTags["latest"]
+	if !haveLatest && len(pending) > 0 {
+		data, ok := pending[latestVersion]
+		if !ok && latestVersion == "" {
+			for _, v := range pending {
+				data = v
+				break
+			}
 		}
-	}
-
-	var latest versionInfo
-	if len(latestData) > 0 {
-		if err := json.Unmarshal(latestData, &latest); err != nil {
-			return nil, err
+		if data != nil {
+			if err := json.Unmarshal(data, &latest); err != nil {
+				return nil, err
+			}
 		}
 	}
 
 	pkg := &core.Package{
-		Name:          resp.ID,
-		Description:   coalesceString(latest.Description, resp.Description),
-		Homepage:      extractString(resp.Homepage),
-		Repository:    core.ExtractRepoURLWithFallback(latest.Repository, resp.Repository),
+		Name:          header.ID,
+		Description:   coalesceString(latest.Description, header.Description),
+		Homepage:      extractString(header.Homepage),
+		Repository:    core.ExtractRepoURLWithFallback(latest.Repository, header.Repository),
 		Licenses:      core.ExtractLicense(latest.License),
 		Keywords:      extractKeywords(latest.Keywords),
-		Namespace:     extractNamespace(resp.ID),
+		Namespace:     extractNamespace(header.ID),
 		LatestVersion: latestVersion,
 		Metadata: map[string]any{
-			"dist-tags": resp.DistTags,
+			"dist-tags": header.DistTags,
 			"funding":   latest.Funding,
 		},
 		FundingLinks: extractFundingLinks(latest.Funding),
 	}
-	if len(resp.Maintainers) > 0 {
-		pkg.Maintainers = convertMaintainers(resp.Maintainers)
+	if len(header.Maintainers) > 0 {
+		pkg.Maintainers = convertMaintainers(header.Maintainers)
 	}
 
 	return pkg, nil
 }
 
-func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Version, error) {
-	escapedName := url.PathEscape(name)
-	url := fmt.Sprintf("%s/%s", r.baseURL, escapedName)
+// packumentHeader is a packument without its versions.
+type packumentHeader struct {
+	ID          string            `json:"_id"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Homepage    interface{}       `json:"homepage"`
+	Repository  interface{}       `json:"repository"`
+	Time        map[string]string `json:"time"`
+	Maintainers []maintainerInfo  `json:"maintainers"`
+	DistTags    map[string]string `json:"dist-tags"`
+}
 
-	var resp packageResponse[versionInfo]
-	if err := r.client.GetJSON(ctx, url, &resp); err != nil {
+// streamPackument decodes a packument straight from the response body, so a
+// document of tens of MB is never held whole. version is called with each
+// entry of versions and must consume exactly one value from dec; header
+// holds the top-level fields read so far.
+func (r *Registry) streamPackument(ctx context.Context, name string, version func(h *packumentHeader, number string, dec *json.Decoder) error) (*packumentHeader, error) {
+	endpoint := fmt.Sprintf("%s/%s", r.baseURL, url.PathEscape(name))
+	var header packumentHeader
+	err := r.client.StreamJSON(ctx, endpoint, func(dec *json.Decoder) error {
+		if err := expectDelim(dec, '{'); err != nil {
+			return err
+		}
+		for dec.More() {
+			tok, err := dec.Token()
+			if err != nil {
+				return err
+			}
+			key, _ := tok.(string)
+			var target any
+			switch key {
+			case "_id":
+				target = &header.ID
+			case "name":
+				target = &header.Name
+			case "description":
+				target = &header.Description
+			case "homepage":
+				target = &header.Homepage
+			case "repository":
+				target = &header.Repository
+			case "time":
+				target = &header.Time
+			case "maintainers":
+				target = &header.Maintainers
+			case "dist-tags":
+				target = &header.DistTags
+			case "versions":
+				if err := decodeVersions(dec, &header, version); err != nil {
+					return err
+				}
+				continue
+			default:
+				if err := skipValue(dec); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := dec.Decode(target); err != nil {
+				return err
+			}
+		}
+		return expectDelim(dec, '}')
+	})
+	if err != nil {
 		if httpErr, ok := err.(*core.HTTPError); ok && httpErr.IsNotFound() {
 			return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name}
 		}
 		return nil, err
 	}
+	return &header, nil
+}
 
-	versions := make([]core.Version, 0, len(resp.Versions))
-	for num, v := range resp.Versions {
-		versions = append(versions, makeVersion(num, v, resp.Time[num]))
+func decodeVersions(dec *json.Decoder, header *packumentHeader, version func(h *packumentHeader, number string, dec *json.Decoder) error) error {
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		return nil
+	}
+	if tok != json.Delim('{') {
+		return fmt.Errorf("npm packument: versions is not an object")
+	}
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		number, _ := tok.(string)
+		if err := version(header, number, dec); err != nil {
+			return err
+		}
+	}
+	return expectDelim(dec, '}')
+}
+
+func expectDelim(dec *json.Decoder, want json.Delim) error {
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	if tok != want {
+		return fmt.Errorf("npm packument: expected %q, got %v", want, tok)
+	}
+	return nil
+}
+
+// skipValue consumes one value without keeping it.
+func skipValue(dec *json.Decoder) error {
+	depth := 0
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		switch tok {
+		case json.Delim('{'), json.Delim('['):
+			depth++
+		case json.Delim('}'), json.Delim(']'):
+			depth--
+		}
+		if depth == 0 {
+			return nil
+		}
+	}
+}
+
+// decodeOne decodes the version named want and skips the rest.
+func decodeOne(want string, info *versionInfo, found *bool) func(*packumentHeader, string, *json.Decoder) error {
+	return func(_ *packumentHeader, number string, dec *json.Decoder) error {
+		if number != want || *found {
+			return skipValue(dec)
+		}
+		*found = true
+		return dec.Decode(info)
+	}
+}
+
+func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Version, error) {
+	var versions []core.Version
+	header, err := r.streamPackument(ctx, name, func(_ *packumentHeader, number string, dec *json.Decoder) error {
+		var v versionInfo
+		if err := dec.Decode(&v); err != nil {
+			return err
+		}
+		versions = append(versions, makeVersion(number, v, ""))
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
+	// time can come after versions, so publication times are filled in last.
+	for i := range versions {
+		if ts := header.Time[versions[i].Number]; ts != "" {
+			versions[i].PublishedAt, _ = time.Parse(time.RFC3339, ts)
+		}
+	}
+	if versions == nil {
+		versions = []core.Version{}
+	}
 	return versions, nil
 }
 
 // FetchVersion retrieves one release while retaining packument publication times.
 func (r *Registry) FetchVersion(ctx context.Context, name, version string) (*core.Version, error) {
-	endpoint := fmt.Sprintf("%s/%s", r.baseURL, url.PathEscape(name))
-	var resp packageResponse[json.RawMessage]
-	if err := r.client.GetJSON(ctx, endpoint, &resp); err != nil {
-		if httpErr, ok := err.(*core.HTTPError); ok && httpErr.IsNotFound() {
-			return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name}
-		}
+	var info versionInfo
+	var found bool
+	header, err := r.streamPackument(ctx, name, decodeOne(version, &info, &found))
+	if err != nil {
 		return nil, err
 	}
-	data, ok := resp.Versions[version]
-	if !ok {
+	if !found {
 		return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name, Version: version}
 	}
-	var info versionInfo
-	if err := json.Unmarshal(data, &info); err != nil {
-		return nil, err
-	}
-	result := makeVersion(version, info, resp.Time[version])
+	result := makeVersion(version, info, header.Time[version])
 	return &result, nil
 }
 
@@ -296,24 +438,13 @@ func makeVersion(num string, v versionInfo, timeStr string) core.Version {
 }
 
 func (r *Registry) FetchDependencies(ctx context.Context, name, version string) ([]core.Dependency, error) {
-	escapedName := url.PathEscape(name)
-	url := fmt.Sprintf("%s/%s", r.baseURL, escapedName)
-
-	var resp packageResponse[json.RawMessage]
-	if err := r.client.GetJSON(ctx, url, &resp); err != nil {
-		if httpErr, ok := err.(*core.HTTPError); ok && httpErr.IsNotFound() {
-			return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name}
-		}
-		return nil, err
-	}
-
-	data, ok := resp.Versions[version]
-	if !ok {
-		return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name, Version: version}
-	}
 	var v versionInfo
-	if err := json.Unmarshal(data, &v); err != nil {
+	var found bool
+	if _, err := r.streamPackument(ctx, name, decodeOne(version, &v, &found)); err != nil {
 		return nil, err
+	}
+	if !found {
+		return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name, Version: version}
 	}
 
 	var deps []core.Dependency
@@ -347,18 +478,14 @@ func (r *Registry) FetchDependencies(ctx context.Context, name, version string) 
 }
 
 func (r *Registry) FetchMaintainers(ctx context.Context, name string) ([]core.Maintainer, error) {
-	escapedName := url.PathEscape(name)
-	url := fmt.Sprintf("%s/%s", r.baseURL, escapedName)
-
-	var resp packageResponse[json.RawMessage]
-	if err := r.client.GetJSON(ctx, url, &resp); err != nil {
-		if httpErr, ok := err.(*core.HTTPError); ok && httpErr.IsNotFound() {
-			return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name}
-		}
+	header, err := r.streamPackument(ctx, name, func(_ *packumentHeader, _ string, dec *json.Decoder) error {
+		return skipValue(dec)
+	})
+	if err != nil {
 		return nil, err
 	}
 
-	return convertMaintainers(resp.Maintainers), nil
+	return convertMaintainers(header.Maintainers), nil
 }
 
 func convertMaintainers(infos []maintainerInfo) []core.Maintainer {

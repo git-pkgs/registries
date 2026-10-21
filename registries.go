@@ -97,6 +97,8 @@ const (
 // Re-export errors
 var (
 	ErrNotFound = client.ErrNotFound
+	// ErrResponseTooLarge is returned when a response body exceeds the client limit.
+	ErrResponseTooLarge = client.ErrResponseTooLarge
 )
 
 // Error types
@@ -145,6 +147,12 @@ var WithTransport = client.WithTransport
 
 // WithSafeHTTP applies protections for requests to untrusted hosts.
 var WithSafeHTTP = client.WithSafeHTTP
+
+// WithMaxResponseSize sets the limit for buffered response bodies.
+var WithMaxResponseSize = client.WithMaxResponseSize
+
+// WithMaxStreamSize sets the limit for streamed response bodies.
+var WithMaxStreamSize = client.WithMaxStreamSize
 
 // SupportedEcosystems returns all registered ecosystem types.
 // Note: ecosystems must be imported to be registered.

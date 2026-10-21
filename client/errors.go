@@ -9,6 +9,10 @@ import (
 // ErrNotFound is returned when a package or version is not found.
 var ErrNotFound = errors.New("not found")
 
+// ErrResponseTooLarge is returned when a response body is larger than the
+// client allows.
+var ErrResponseTooLarge = errors.New("response body too large")
+
 // HTTPError represents an HTTP error response.
 type HTTPError struct {
 	StatusCode int

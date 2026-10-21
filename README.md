@@ -340,6 +340,7 @@ The default client includes:
 - 30 second timeout
 - 5 retries with exponential backoff (50ms base, 10% jitter)
 - Automatic retry on 429 without a usable Retry-After and on 5xx responses
+- Buffered response bodies limited to 10 MiB and streamed bodies to 512 MiB; a larger body fails with `ErrResponseTooLarge` (change with `WithMaxResponseSize` and `WithMaxStreamSize`)
 
 Custom client via the top-level package:
 
@@ -367,6 +368,11 @@ err := c.GetJSON(ctx, "https://registry.npmjs.org/lodash", &data)
 
 // Raw body
 body, err := c.GetBody(ctx, "https://crates.io/api/v1/crates/serde")
+
+// Streamed JSON, for documents too large to buffer
+err = c.StreamJSON(ctx, "https://registry.npmjs.org/renovate", func(dec *json.Decoder) error {
+    return dec.Decode(&data)
+})
 
 // HEAD request
 statusCode, err := c.Head(ctx, "https://registry.npmjs.org/lodash")

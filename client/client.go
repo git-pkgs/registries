@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"math/rand"
@@ -21,9 +22,11 @@ const (
 	backoffBase       = 2
 	jitterFactor      = 0.1
 
-	// maxResponseSize is the maximum response body size we will read (10 MB).
-	// Registry JSON API responses should be well under this limit.
+	// maxResponseSize is the default limit for buffered response bodies.
 	maxResponseSize = 10 << 20
+	// maxStreamSize is the default limit for streamed bodies. The largest npm
+	// packuments are around 100 MB.
+	maxStreamSize = 512 << 20
 )
 
 // RateLimiter controls request pacing.
@@ -38,6 +41,10 @@ type Client struct {
 	MaxRetries  int
 	BaseDelay   time.Duration
 	RateLimiter RateLimiter
+	// MaxResponseSize limits buffered bodies; zero means 10 MiB.
+	MaxResponseSize int64
+	// MaxStreamSize limits bodies read through StreamJSON; zero means 512 MiB.
+	MaxStreamSize int64
 }
 
 // DefaultClient returns a client with sensible defaults.
@@ -68,13 +75,111 @@ func (c *Client) GetJSONWithHeaders(ctx context.Context, url string, headers htt
 	return responseHeaders, json.Unmarshal(body, v)
 }
 
-// GetBody fetches a URL and returns the response body.
+// GetBody fetches a URL and returns the response body. A body larger than
+// the client's MaxResponseSize fails with ErrResponseTooLarge.
 func (c *Client) GetBody(ctx context.Context, url string) ([]byte, error) {
 	body, _, err := c.getBody(ctx, url, nil)
 	return body, err
 }
 
 func (c *Client) getBody(ctx context.Context, url string, headers http.Header) ([]byte, http.Header, error) {
+	var body []byte
+	resp, responseHeaders, err := c.open(ctx, url, headers, func(resp *http.Response) error {
+		defer func() { _ = resp.Body.Close() }()
+		var err error
+		body, err = readLimited(resp.Body, url, c.maxResponseSize())
+		return err
+	})
+	if err != nil {
+		return nil, responseHeaders, err
+	}
+	return body, resp.Header, nil
+}
+
+// StreamJSON fetches a URL and passes a decoder over the response body to fn,
+// so large documents can be decoded without holding them in memory. Bodies
+// are limited to MaxStreamSize. Retries cover getting a response; an error
+// while fn reads the body is returned as is. fn must consume the complete
+// JSON document; trailing data and body read errors are rejected.
+func (c *Client) StreamJSON(ctx context.Context, url string, fn func(*json.Decoder) error) error {
+	resp, _, err := c.open(ctx, url, nil, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	limit := c.maxStreamSize()
+	dec := json.NewDecoder(&limitedReader{r: resp.Body, remaining: limit, limit: limit, url: url})
+	if err := fn(dec); err != nil {
+		return err
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		if err != nil {
+			return err
+		}
+		return errors.New("unexpected data after JSON document")
+	}
+	return nil
+}
+
+func (c *Client) maxResponseSize() int64 {
+	if c.MaxResponseSize > 0 {
+		return c.MaxResponseSize
+	}
+	return maxResponseSize
+}
+
+func (c *Client) maxStreamSize() int64 {
+	if c.MaxStreamSize > 0 {
+		return c.MaxStreamSize
+	}
+	return maxStreamSize
+}
+
+func readLimited(r io.Reader, url string, limit int64) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > limit {
+		return nil, tooLarge(url, limit)
+	}
+	return body, nil
+}
+
+func tooLarge(url string, limit int64) error {
+	return fmt.Errorf("%w: response body for %s exceeds %d bytes", ErrResponseTooLarge, url, limit)
+}
+
+// limitedReader fails once more than limit bytes have been read, where
+// io.LimitReader would end the stream early and look like a complete body.
+type limitedReader struct {
+	r         io.Reader
+	remaining int64
+	limit     int64
+	url       string
+}
+
+func (l *limitedReader) Read(p []byte) (int, error) {
+	if l.remaining < 0 {
+		return 0, tooLarge(l.url, l.limit)
+	}
+	if int64(len(p)) > l.remaining+1 {
+		p = p[:l.remaining+1]
+	}
+	n, err := l.r.Read(p)
+	if int64(n) > l.remaining {
+		n = int(l.remaining)
+		l.remaining = -1
+		return n, tooLarge(l.url, l.limit)
+	}
+	l.remaining -= int64(n)
+	return n, err
+}
+
+// open retries requests and optional body reads within one retry budget.
+// read must close the body; a nil read leaves it open for the caller. On
+// failure it returns the headers of the last response received, if any.
+func (c *Client) open(ctx context.Context, url string, headers http.Header, read func(*http.Response) error) (*http.Response, http.Header, error) {
 	var lastErr error
 	var lastHeaders http.Header
 
@@ -97,14 +202,17 @@ func (c *Client) getBody(ctx context.Context, url string, headers http.Header) (
 			}
 		}
 
-		body, responseHeaders, err := c.doRequest(ctx, url, headers)
+		resp, responseHeaders, err := c.doRequest(ctx, url, headers)
+		if err == nil && read != nil {
+			err = read(resp)
+		}
 		if err == nil {
-			return body, responseHeaders, nil
+			return resp, responseHeaders, nil
 		}
 
 		lastErr = err
 		lastHeaders = responseHeaders
-		if errors.Is(err, ErrUpstreamHeld) {
+		if errors.Is(err, ErrUpstreamHeld) || errors.Is(err, ErrResponseTooLarge) {
 			return nil, responseHeaders, err
 		}
 		var rateErr *RateLimitError
@@ -127,7 +235,7 @@ func (c *Client) getBody(ctx context.Context, url string, headers http.Header) (
 	return nil, lastHeaders, lastErr
 }
 
-func (c *Client) doRequest(ctx context.Context, url string, headers http.Header) ([]byte, http.Header, error) {
+func (c *Client) doRequest(ctx context.Context, url string, headers http.Header) (*http.Response, http.Header, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, nil, err
@@ -146,32 +254,30 @@ func (c *Client) doRequest(ctx context.Context, url string, headers http.Header)
 	if err != nil {
 		return nil, nil, err
 	}
+	if resp.StatusCode < http.StatusBadRequest {
+		return resp, resp.Header, nil
+	}
 	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return nil, resp.Header, err
 	}
-
-	if resp.StatusCode >= http.StatusBadRequest {
-		httpErr := &HTTPError{
-			StatusCode: resp.StatusCode,
-			URL:        url,
-			Body:       string(body),
-		}
-		if resp.StatusCode == http.StatusTooManyRequests {
-			if delay, ok := parseRetryAfter(resp.Header.Get("Retry-After"), time.Now()); ok {
-				seconds := delay / time.Second
-				if delay%time.Second != 0 {
-					seconds++
-				}
-				return nil, resp.Header, &RateLimitError{RetryAfter: int(seconds)}
-			}
-		}
-		return nil, resp.Header, httpErr
+	httpErr := &HTTPError{
+		StatusCode: resp.StatusCode,
+		URL:        url,
+		Body:       string(body),
 	}
-
-	return body, resp.Header, nil
+	if resp.StatusCode == http.StatusTooManyRequests {
+		if delay, ok := parseRetryAfter(resp.Header.Get("Retry-After"), time.Now()); ok {
+			seconds := delay / time.Second
+			if delay%time.Second != 0 {
+				seconds++
+			}
+			return nil, resp.Header, &RateLimitError{RetryAfter: int(seconds)}
+		}
+	}
+	return nil, resp.Header, httpErr
 }
 
 func isHTTPError(err error, target **HTTPError) bool {
@@ -237,6 +343,20 @@ func WithTimeout(d time.Duration) Option {
 func WithMaxRetries(n int) Option {
 	return func(c *Client) {
 		c.MaxRetries = n
+	}
+}
+
+// WithMaxResponseSize sets the limit for buffered response bodies.
+func WithMaxResponseSize(n int64) Option {
+	return func(c *Client) {
+		c.MaxResponseSize = n
+	}
+}
+
+// WithMaxStreamSize sets the limit for bodies read through StreamJSON.
+func WithMaxStreamSize(n int64) Option {
+	return func(c *Client) {
+		c.MaxStreamSize = n
 	}
 }
 
