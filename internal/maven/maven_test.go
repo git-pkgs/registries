@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/git-pkgs/registries/client"
 	"github.com/git-pkgs/registries/internal/core"
 )
 
@@ -436,5 +439,121 @@ func TestEcosystem(t *testing.T) {
 	reg := New("", nil)
 	if reg.Ecosystem() != "maven" {
 		t.Errorf("expected ecosystem 'maven', got %q", reg.Ecosystem())
+	}
+}
+
+const threeVersionMetadata = `<metadata><versioning><versions>
+<version>1.0.0</version><version>1.5.0</version><version>2.0.0</version>
+</versions></versioning></metadata>`
+
+// centralRegistry returns a registry for server that queries server's
+// search API the way New does for Maven Central.
+func centralRegistry(server *httptest.Server) *Registry {
+	reg := New(server.URL, client.NewClient(client.WithMaxRetries(0)))
+	reg.searchURL = server.URL
+	return reg
+}
+
+func TestFetchVersionsCentralAddsSearchDates(t *testing.T) {
+	published := time.Date(2024, 5, 1, 12, 0, 0, 0, time.UTC)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/com/example/test/maven-metadata.xml", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(threeVersionMetadata))
+	})
+	mux.HandleFunc("/solrsearch/select", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("q") != "g:com.example AND a:test" || q.Get("core") != "gav" || q.Get("rows") != "200" {
+			t.Errorf("unexpected search query %s", r.URL.RawQuery)
+		}
+		_, _ = fmt.Fprintf(w, `{"response":{"numFound":2,"docs":[{"v":"2.0.0","timestamp":%d},{"v":"1.5.0","timestamp":%d}]}}`,
+			published.UnixMilli(), published.Add(-24*time.Hour).UnixMilli())
+	})
+	failOtherRequests(t, mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	versions, err := centralRegistry(server).FetchVersions(context.Background(), "com.example:test")
+	if err != nil {
+		t.Fatalf("FetchVersions failed: %v", err)
+	}
+	want := map[string]time.Time{
+		"2.0.0": published,
+		"1.5.0": published.Add(-24 * time.Hour),
+		"1.0.0": {}, // not in the search results
+	}
+	if len(versions) != len(want) {
+		t.Fatalf("got %d versions, want %d", len(versions), len(want))
+	}
+	for _, v := range versions {
+		if !v.PublishedAt.Equal(want[v.Number]) {
+			t.Errorf("%s PublishedAt = %v, want %v", v.Number, v.PublishedAt, want[v.Number])
+		}
+	}
+}
+
+func TestFetchVersionsCentralSearchFailureKeepsVersions(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/com/example/test/maven-metadata.xml", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(threeVersionMetadata))
+	})
+	mux.HandleFunc("/solrsearch/select", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	})
+	failOtherRequests(t, mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	versions, err := centralRegistry(server).FetchVersions(context.Background(), "com.example:test")
+	if err != nil {
+		t.Fatalf("FetchVersions failed: %v", err)
+	}
+	got := make([]string, len(versions))
+	for i, v := range versions {
+		got[i] = v.Number
+		if !v.PublishedAt.IsZero() {
+			t.Errorf("%s PublishedAt = %v, want none", v.Number, v.PublishedAt)
+		}
+	}
+	if want := []string{"2.0.0", "1.5.0", "1.0.0"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("versions = %v, want %v", got, want)
+	}
+}
+
+// hostOnlyTransport refuses requests to any host but one and records them.
+type hostOnlyTransport struct {
+	host  string
+	other []string
+}
+
+func (h *hostOnlyTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.URL.Host != h.host {
+		h.other = append(h.other, r.URL.String())
+		return nil, fmt.Errorf("unexpected request to %s", r.URL.Host)
+	}
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+func TestFetchVersionsCustomRepositorySkipsSearch(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/com/example/test/maven-metadata.xml", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(threeVersionMetadata))
+	})
+	failOtherRequests(t, mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	serverURL, _ := url.Parse(server.URL)
+	transport := &hostOnlyTransport{host: serverURL.Host}
+	reg := New(server.URL, client.NewClient(client.WithMaxRetries(0), client.WithHTTPClient(&http.Client{Transport: transport})))
+
+	versions, err := reg.FetchVersions(context.Background(), "com.example:test")
+	if err != nil {
+		t.Fatalf("FetchVersions failed: %v", err)
+	}
+	if len(versions) != 3 {
+		t.Fatalf("got %d versions, want 3", len(versions))
+	}
+	if len(transport.other) > 0 {
+		t.Errorf("requests outside the repository: %v", transport.other)
 	}
 }

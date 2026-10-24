@@ -6,7 +6,9 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/git-pkgs/pom"
 	"github.com/git-pkgs/registries/internal/core"
@@ -15,11 +17,14 @@ import (
 
 const (
 	DefaultURL = "https://repo1.maven.org/maven2"
+	SearchURL  = "https://search.maven.org"
 	ecosystem  = "maven"
 	// minCoordParts is the minimum number of parts in a Maven coordinate (group:artifact)
 	minCoordParts = 2
 	// coordPartsWithVersion is the number of parts when version is included (group:artifact:version)
 	coordPartsWithVersion = 3
+	// searchRows is how many versions one search request returns dates for.
+	searchRows = 200
 )
 
 func init() {
@@ -29,10 +34,14 @@ func init() {
 }
 
 type Registry struct {
-	baseURL  string
-	client   *core.Client
-	resolver *pom.Resolver
-	urls     *URLs
+	baseURL string
+	// searchURL is Central's search API, which has the publish dates that
+	// maven-metadata.xml lacks. It is empty for any other repository, whose
+	// versions Central's search doesn't describe.
+	searchURL string
+	client    *core.Client
+	resolver  *pom.Resolver
+	urls      *URLs
 }
 
 func New(baseURL string, client *core.Client) *Registry {
@@ -42,6 +51,9 @@ func New(baseURL string, client *core.Client) *Registry {
 	r := &Registry{
 		baseURL: strings.TrimSuffix(baseURL, "/"),
 		client:  client,
+	}
+	if r.baseURL == DefaultURL {
+		r.searchURL = SearchURL
 	}
 	r.urls = &URLs{baseURL: r.baseURL}
 	r.resolver = pom.NewResolver(pom.NewCachingFetcher(&clientFetcher{client: client, baseURL: r.baseURL}))
@@ -206,7 +218,9 @@ func applyPOMMetadata(pkg *core.Package, ep *pom.EffectivePOM) {
 }
 
 // FetchVersions lists the versions in maven-metadata.xml, newest first.
-// The metadata carries no per-version dates, so PublishedAt stays empty.
+// The metadata carries no per-version dates. For Maven Central they are
+// taken from the search API where it has them; elsewhere PublishedAt stays
+// empty.
 func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Version, error) {
 	groupID, artifactID, _ := ParseCoordinates(name)
 	if groupID == "" || artifactID == "" {
@@ -218,12 +232,47 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 		return nil, err
 	}
 
+	dates := r.searchDates(ctx, groupID, artifactID)
 	listed := metadata.Versioning.Versions
 	versions := make([]core.Version, len(listed))
 	for i, v := range listed {
-		versions[len(listed)-1-i] = core.Version{Number: v}
+		versions[len(listed)-1-i] = core.Version{Number: v, PublishedAt: dates[v]}
 	}
 	return versions, nil
+}
+
+type searchResponse struct {
+	Response struct {
+		Docs []searchDoc `json:"docs"`
+	} `json:"response"`
+}
+
+type searchDoc struct {
+	// core=gav returns the version in "v".
+	Version   string `json:"v"`
+	Timestamp int64  `json:"timestamp"`
+}
+
+// searchDates returns the publish dates Central's search API has for the
+// newest versions of an artifact. Search only adds dates, so a failure
+// leaves them out rather than failing the lookup.
+func (r *Registry) searchDates(ctx context.Context, groupID, artifactID string) map[string]time.Time {
+	if r.searchURL == "" {
+		return nil
+	}
+	searchURL := fmt.Sprintf("%s/solrsearch/select?q=g:%s+AND+a:%s&core=gav&rows=%d&wt=json",
+		r.searchURL, url.QueryEscape(groupID), url.QueryEscape(artifactID), searchRows)
+	var resp searchResponse
+	if err := r.client.GetJSON(ctx, searchURL, &resp); err != nil {
+		return nil
+	}
+	dates := make(map[string]time.Time, len(resp.Response.Docs))
+	for _, doc := range resp.Response.Docs {
+		if doc.Version != "" && doc.Timestamp > 0 {
+			dates[doc.Version] = time.UnixMilli(doc.Timestamp)
+		}
+	}
+	return dates
 }
 
 func (r *Registry) FetchDependencies(ctx context.Context, name, version string) ([]core.Dependency, error) {

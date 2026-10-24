@@ -94,7 +94,7 @@ func encodePath(path string) string {
 
 **Group Path:** Replace `.` with `/` in groupId: `org.apache.commons` → `org/apache/commons`
 
-**Versions:** Listed in `maven-metadata.xml` of the configured repository, without publish dates. `search.maven.org` is not used, since it only knows Central and rate limits.
+**Versions:** Listed from `maven-metadata.xml` of the configured repository, which has no publish dates. For Maven Central the dates come from `search.maven.org` (`core=gav`, the newest 200 versions); a failed search leaves them out. Other repositories get no dates, since the search only knows Central.
 
 **POM Parsing:** Must parse XML POM files for metadata and dependencies.
 
