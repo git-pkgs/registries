@@ -552,6 +552,14 @@ resolver := fetch.NewResolver(fetch.WithBaseURLs(map[string]string{
 }))
 ```
 
+Download URLs taken from registry metadata must use https, and their host must not resolve to a loopback, private, link-local or other internal address. `WithAddressPolicy` relaxes that with the same `safehttp.Options` as the client that downloads them, for example when a private Composer repository points at an internal GitLab:
+
+```go
+opts := safehttp.Options{AllowPrivateHosts: []string{"gitlab.internal"}}
+resolver := fetch.NewResolver(fetch.WithAddressPolicy(opts))
+client := safehttp.New(nil, opts)
+```
+
 ## Private Registries
 
 PURLs with a `repository_url` qualifier automatically use that URL:

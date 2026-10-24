@@ -12,6 +12,7 @@ import (
 	"github.com/git-pkgs/purl"
 	"github.com/git-pkgs/registries"
 	"github.com/git-pkgs/registries/client"
+	"github.com/git-pkgs/registries/safehttp"
 )
 
 var (
@@ -46,6 +47,8 @@ var defaultBaseURLs = map[string]string{
 type Resolver struct {
 	registries map[string]Registry
 	baseURLs   map[string]string
+	addrPolicy safehttp.Options
+	ipChecker  *safehttp.HostIPChecker
 }
 
 // ResolverOption configures a Resolver.
@@ -64,6 +67,16 @@ func WithBaseURLs(baseURLs map[string]string) ResolverOption {
 	}
 }
 
+// WithAddressPolicy sets which addresses the hosts of download URLs taken
+// from registry metadata may resolve to. Pass the same options as the
+// safehttp client that downloads them, so the resolver and the client agree.
+// The default is safehttp's strict policy.
+func WithAddressPolicy(opts safehttp.Options) ResolverOption {
+	return func(r *Resolver) {
+		r.addrPolicy = opts
+	}
+}
+
 // NewResolver creates a new URL resolver.
 func NewResolver(opts ...ResolverOption) *Resolver {
 	r := &Resolver{
@@ -76,6 +89,7 @@ func NewResolver(opts ...ResolverOption) *Resolver {
 	for _, opt := range opts {
 		opt(r)
 	}
+	r.ipChecker = safehttp.NewHostIPChecker(r.addrPolicy)
 	return r
 }
 
@@ -223,7 +237,7 @@ func (r *Resolver) resolveFromMetadata(
 		}
 
 		if len(v.Artifacts) > 0 {
-			return selectArtifact(v.Artifacts, options)
+			return r.selectArtifact(ctx, v.Artifacts, options)
 		}
 
 		// Look for download URL in metadata. These come from the
@@ -231,11 +245,11 @@ func (r *Resolver) resolveFromMetadata(
 		// before anyone fetches them.
 		if v.Metadata != nil {
 			if u, ok := v.Metadata["download_url"].(string); ok && u != "" {
-				info, err := artifactFromMetadataURL(u, v.Integrity)
+				info, err := r.artifactFromMetadataURL(ctx, u, v.Integrity)
 				return matchSingleArtifact(info, options, err)
 			}
 			if u, ok := v.Metadata["tarball"].(string); ok && u != "" {
-				info, err := artifactFromMetadataURL(u, v.Integrity)
+				info, err := r.artifactFromMetadataURL(ctx, u, v.Integrity)
 				return matchSingleArtifact(info, options, err)
 			}
 		}
@@ -246,7 +260,7 @@ func (r *Resolver) resolveFromMetadata(
 	return nil, ErrNotFound
 }
 
-func selectArtifact(candidates []registries.Artifact, options ResolveOptions) (*ArtifactInfo, error) {
+func (r *Resolver) selectArtifact(ctx context.Context, candidates []registries.Artifact, options ResolveOptions) (*ArtifactInfo, error) {
 	for _, candidate := range candidates {
 		filename := candidate.Filename
 		if filename == "" {
@@ -261,7 +275,7 @@ func selectArtifact(candidates []registries.Artifact, options ResolveOptions) (*
 		if !qualifiersMatch(candidate.Metadata, options.Qualifiers) {
 			continue
 		}
-		if err := checkMetadataURL(candidate.URL); err != nil {
+		if err := r.checkMetadataURL(ctx, candidate.URL); err != nil {
 			return nil, err
 		}
 		return &ArtifactInfo{
@@ -310,8 +324,8 @@ func integrityMatches(candidate, requested string) bool {
 	return false
 }
 
-func artifactFromMetadataURL(raw, integrity string) (*ArtifactInfo, error) {
-	if err := checkMetadataURL(raw); err != nil {
+func (r *Resolver) artifactFromMetadataURL(ctx context.Context, raw, integrity string) (*ArtifactInfo, error) {
+	if err := r.checkMetadataURL(ctx, raw); err != nil {
 		return nil, err
 	}
 	return &ArtifactInfo{
@@ -324,8 +338,9 @@ func artifactFromMetadataURL(raw, integrity string) (*ArtifactInfo, error) {
 // checkMetadataURL rejects download URLs from registry responses that
 // could direct the fetcher somewhere it shouldn't go. A compromised or
 // MITM'd registry could otherwise hand back file:// or a cloud metadata
-// endpoint.
-func checkMetadataURL(raw string) error {
+// endpoint. Every address the host resolves to must pass the resolver's
+// address policy. A host that doesn't resolve is left to fail at download.
+func (r *Resolver) checkMetadataURL(ctx context.Context, raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrUnsafeURL, err)
@@ -337,22 +352,20 @@ func checkMetadataURL(raw string) error {
 	if hostname == "" {
 		return fmt.Errorf("%w: empty host", ErrUnsafeURL)
 	}
-	if isPrivateHost(hostname) {
-		return fmt.Errorf("%w: private/loopback host %q", ErrUnsafeURL, hostname)
+	var ips []net.IP
+	if ip := net.ParseIP(hostname); ip != nil {
+		ips = []net.IP{ip}
+	} else if addrs, err := net.DefaultResolver.LookupIPAddr(ctx, hostname); err == nil {
+		for _, addr := range addrs {
+			ips = append(ips, addr.IP)
+		}
+	}
+	for _, ip := range ips {
+		if err := r.ipChecker.Check(hostname, ip); err != nil {
+			return fmt.Errorf("%w: host %q: %v", ErrUnsafeURL, hostname, err)
+		}
 	}
 	return nil
-}
-
-func isPrivateHost(hostname string) bool {
-	ip := net.ParseIP(hostname)
-	if ip == nil {
-		ips, err := net.LookupIP(hostname)
-		if err != nil || len(ips) == 0 {
-			return false
-		}
-		ip = ips[0]
-	}
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
 }
 
 func filenameFromURL(url string) string {

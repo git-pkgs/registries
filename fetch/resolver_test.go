@@ -3,10 +3,12 @@ package fetch
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/git-pkgs/registries"
 	"github.com/git-pkgs/registries/client"
+	"github.com/git-pkgs/registries/safehttp"
 )
 
 func TestResolveWithoutRegistry(t *testing.T) {
@@ -195,14 +197,16 @@ func TestCheckMetadataURL(t *testing.T) {
 		{"//169.254.169.254/latest/meta-data/", false},
 		{"169.254.169.254/latest/meta-data/", false},
 		{"https://169.254.169.254/latest/meta-data/", false},
-		{"https://127.0.0.1/something", false},
-		{"https://[::1]/something", false},
+		{"https://[fe80::1]/something", false},
+		{"https://0.0.0.0/something", false},
+		{"https://224.0.0.1/something", false},
 		{"", false},
 		{"\x00https://evil", false},
 	}
 
+	r := NewResolver()
 	for _, tt := range tests {
-		err := checkMetadataURL(tt.url)
+		err := r.checkMetadataURL(context.Background(), tt.url)
 		if tt.ok && err != nil {
 			t.Errorf("checkMetadataURL(%q) = %v, want nil", tt.url, err)
 		}
@@ -213,6 +217,23 @@ func TestCheckMetadataURL(t *testing.T) {
 				t.Errorf("checkMetadataURL(%q) error not ErrUnsafeURL: %v", tt.url, err)
 			}
 		}
+	}
+}
+
+// The fetch tests run with safehttp.EnableLoopbackForTesting, so loopback
+// and private addresses pass the checker here. safehttp's own tests cover
+// them; this checks that the resolver uses the policy it is given.
+func TestWithAddressPolicy(t *testing.T) {
+	opts := safehttp.Options{AllowLoopback: true, AllowPrivateHosts: []string{"gitlab.internal"}}
+	r := NewResolver(WithAddressPolicy(opts))
+	if !reflect.DeepEqual(r.addrPolicy, opts) {
+		t.Errorf("addrPolicy = %+v, want %+v", r.addrPolicy, opts)
+	}
+	if !reflect.DeepEqual(NewResolver().addrPolicy, safehttp.Options{}) {
+		t.Errorf("default addrPolicy = %+v, want the strict zero value", NewResolver().addrPolicy)
+	}
+	if err := r.checkMetadataURL(context.Background(), "https://169.254.169.254/latest/meta-data/"); !errors.Is(err, ErrUnsafeURL) {
+		t.Errorf("link-local URL with a relaxed policy: err = %v, want ErrUnsafeURL", err)
 	}
 }
 
