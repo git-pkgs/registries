@@ -1,6 +1,9 @@
 package registries_test
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -17,7 +20,7 @@ import (
 func TestSupportedEcosystems(t *testing.T) {
 	ecosystems := registries.SupportedEcosystems()
 
-	expected := []string{"brew", "cargo", "clojars", "cocoapods", "composer", "conda", "cpan", "cran", "deno", "dub", "elm", "gem", "golang", "hackage", "haxelib", "helm", "hex", "julia", "luarocks", "maven", "nimble", "npm", "nuget", "pub", "pypi", "swift", "terraform"}
+	expected := []string{"apk", "brew", "cargo", "clojars", "cocoapods", "composer", "conda", "cpan", "cran", "deno", "dub", "elm", "gem", "golang", "hackage", "haxelib", "helm", "hex", "julia", "luarocks", "maven", "nimble", "npm", "nuget", "pub", "pypi", "swift", "terraform"}
 	sort.Strings(ecosystems)
 
 	if len(ecosystems) != len(expected) {
@@ -63,6 +66,7 @@ func TestNew(t *testing.T) {
 		{"terraform", false},
 		{"helm", true},
 		{"swift", true},
+		{"apk", true},
 		{"unknown", true},
 	}
 
@@ -108,6 +112,7 @@ func TestDefaultURL(t *testing.T) {
 		{"terraform", "https://registry.terraform.io"},
 		{"helm", ""},
 		{"swift", ""},
+		{"apk", ""},
 	}
 
 	for _, tt := range tests {
@@ -279,4 +284,58 @@ func TestRootClientOptions(t *testing.T) {
 	if !strings.Contains(err.Error(), "loopback") {
 		t.Errorf("WithSafeHTTP error %v should mention loopback", err)
 	}
+}
+
+func TestAPKFromPURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/alpine/v3.23/main/x86_64/APKINDEX.tar.gz" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(apkIndex(t, "P:curl\nV:8.22.0-r0\nA:x86_64\nt:1788539493\nD:libcurl=8.22.0-r0\n"))
+	}))
+	defer srv.Close()
+
+	purl := "pkg:apk/alpine/curl@8.22.0-r0?arch=x86_64&repository_url=" + srv.URL + "/alpine/v3.23/main/x86_64"
+	v, err := registries.FetchVersionFromPURL(context.Background(), purl, nil)
+	if err != nil {
+		t.Fatalf("FetchVersionFromPURL failed: %v", err)
+	}
+	if v.Number != "8.22.0-r0" || v.Artifacts[0].URL != srv.URL+"/alpine/v3.23/main/x86_64/curl-8.22.0-r0.apk" {
+		t.Errorf("version = %+v", v)
+	}
+
+	pkg, err := registries.FetchPackageFromPURL(context.Background(), purl, nil)
+	if err != nil || pkg.Namespace != "alpine" || pkg.Name != "curl" {
+		t.Errorf("package = %+v, %v", pkg, err)
+	}
+
+	deps, err := registries.FetchDependenciesFromPURL(context.Background(), purl, nil)
+	if err != nil || len(deps) != 1 || deps[0].Name != "libcurl" {
+		t.Errorf("deps = %+v, %v", deps, err)
+	}
+
+	if _, err := registries.FetchVersionFromPURL(context.Background(), "pkg:apk/alpine/curl@8.22.0-r0?arch=x86_64", nil); err == nil || !strings.Contains(err.Error(), "no registry URL configured") {
+		t.Errorf("missing URL err = %v", err)
+	}
+}
+
+func apkIndex(t *testing.T, index string) []byte {
+	t.Helper()
+	var out bytes.Buffer
+	gz := gzip.NewWriter(&out)
+	tw := tar.NewWriter(gz)
+	if err := tw.WriteHeader(&tar.Header{Name: "APKINDEX", Mode: 0o644, Size: int64(len(index))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte(index)); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return out.Bytes()
 }

@@ -1,0 +1,64 @@
+C:Q1LSohzMjVRmn08215M0mwFPRtsg8=
+P:7zip
+V:25.01-r0
+A:x86_64
+S:915485
+I:1784184
+T:File archiver with a high compression ratio
+U:https://7-zip.org/
+L:LGPL-2.0-only
+o:7zip
+m:Alex Xu (Hello71) <alex_y_xu@yahoo.ca>
+t:1754258820
+c:2dcce3f385a48d09a9253131950c95b1ee208189
+k:100
+D:so:libc.musl-x86_64.so.1 so:libgcc_s.so.1 so:libstdc++.so.6
+p:7zip-virtual p7zip=25.01-r0 cmd:7z=25.01-r0 cmd:7zz=25.01-r0
+
+C:Q18TR4AbuWsapA0X+CI3w/T/AqRyU=
+P:busybox
+V:1.37.0-r30
+A:x86_64
+S:504726
+I:813480
+T:Size optimized toolbox of many common UNIX utilities
+U:https://busybox.net/
+L:GPL-2.0-only
+o:busybox
+m:Sören Tempel <soeren+alpine@soeren-tempel.net>
+t:1765894768
+c:1e823a60eb85606954b3a5af5f8e5bbd1ea680cf
+D:so:libc.musl-x86_64.so.1
+p:cmd:busybox=1.37.0-r30
+
+C:Q1Je9Cwt4OmEyiSGWGtYfOVCrvgWE=
+P:curl
+V:8.22.0-r0
+A:x86_64
+S:178681
+I:285023
+T:URL retrieval utility and library
+U:https://curl.se/
+L:curl
+o:curl
+m:Achill Gilgenast <achill@achill.org>
+t:1788539493
+c:ce63a8e353eacc32ad36fd49ae1f427f4306da87
+D:libcurl=8.22.0-r0 so:libc.musl-x86_64.so.1 so:libcurl.so.4 so:libz.so.1
+p:wcurl=8.22.0-r0 cmd:curl=8.22.0-r0 cmd:wcurl=8.22.0-r0
+
+C:Q1PQpUpa883t9yRUqystyVqUNSz2g=
+P:curl-doc
+V:8.22.0-r0
+A:x86_64
+S:769930
+I:723586
+T:URL retrieval utility and library (documentation)
+U:https://curl.se/
+L:curl
+o:curl
+m:Achill Gilgenast <achill@achill.org>
+t:1788539493
+c:ce63a8e353eacc32ad36fd49ae1f427f4306da87
+i:docs curl=8.22.0-r0
+
