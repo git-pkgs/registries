@@ -8,6 +8,14 @@
 //     directly, so a rebind between check and connect cannot escape
 //     the gate.
 //
+//     When the transport sends a request through a forward proxy (for
+//     example from HTTP_PROXY or HTTPS_PROXY), the dial reaches the
+//     forward proxy, so the destination is checked before the request
+//     is handed over: it is resolved and every address must pass the
+//     same gate. A name that cannot be resolved locally is passed to
+//     the forward proxy, since some networks resolve public names only
+//     there.
+//
 //  2. Redirect cap. Go's default ignores chain length and re-trusts
 //     each hop. CheckRedirect caps at 10 and re-validates every
 //     redirect target.
