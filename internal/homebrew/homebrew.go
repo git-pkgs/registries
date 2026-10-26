@@ -61,7 +61,6 @@ type formulaResponse struct {
 	BuildDependencies    []string      `json:"build_dependencies"`
 	TestDependencies     []string      `json:"test_dependencies"`
 	OptionalDependencies []string      `json:"optional_dependencies"`
-	VersionedFormulae    []string      `json:"versioned_formulae"`
 	Deprecated           bool          `json:"deprecated"`
 	DeprecationDate      string        `json:"deprecation_date"`
 	DeprecationReason    string        `json:"deprecation_reason"`
@@ -158,20 +157,6 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 				"bottle": resp.Versions.Bottle,
 			},
 		})
-	}
-
-	// Add versioned formulae (e.g., python@3.11, node@18)
-	for _, vf := range resp.VersionedFormulae {
-		// Extract version from formula name like "python@3.11"
-		parts := strings.SplitN(vf, "@", 2) //nolint:mnd // name@version split
-		if len(parts) == 2 {                //nolint:mnd
-			versions = append(versions, core.Version{
-				Number: parts[1],
-				Metadata: map[string]any{
-					"formula": vf,
-				},
-			})
-		}
 	}
 
 	return versions, nil

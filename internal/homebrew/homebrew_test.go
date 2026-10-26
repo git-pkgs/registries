@@ -76,16 +76,22 @@ func TestFetchPackageWithGitHubRepo(t *testing.T) {
 
 func TestFetchVersions(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := formulaResponse{
-			Name:    "python",
-			License: "Python-2.0",
-			Versions: versionsInfo{
-				Stable: "3.12.1",
-				Bottle: true,
-			},
-			URLs: urlsInfo{
-				Stable: urlInfo{
-					Checksum: "abc123def456",
+		// versioned_formulae names other formulae, not versions of this one.
+		resp := struct {
+			formulaResponse
+			VersionedFormulae []string `json:"versioned_formulae"`
+		}{
+			formulaResponse: formulaResponse{
+				Name:    "python",
+				License: "Python-2.0",
+				Versions: versionsInfo{
+					Stable: "3.12.1",
+					Bottle: true,
+				},
+				URLs: urlsInfo{
+					Stable: urlInfo{
+						Checksum: "abc123def456",
+					},
 				},
 			},
 			VersionedFormulae: []string{"python@3.11", "python@3.10", "python@3.9"},
@@ -100,8 +106,8 @@ func TestFetchVersions(t *testing.T) {
 		t.Fatalf("FetchVersions failed: %v", err)
 	}
 
-	if len(versions) != 4 {
-		t.Fatalf("expected 4 versions (stable + 3 versioned), got %d", len(versions))
+	if len(versions) != 1 {
+		t.Fatalf("expected only the stable version, got %v", versions)
 	}
 
 	if versions[0].Number != "3.12.1" {
