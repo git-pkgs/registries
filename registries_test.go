@@ -20,7 +20,7 @@ import (
 func TestSupportedEcosystems(t *testing.T) {
 	ecosystems := registries.SupportedEcosystems()
 
-	expected := []string{"apk", "brew", "cargo", "clojars", "cocoapods", "composer", "conda", "cpan", "cran", "deno", "dub", "elm", "gem", "golang", "hackage", "haxelib", "helm", "hex", "julia", "luarocks", "maven", "nimble", "npm", "nuget", "pub", "pypi", "swift", "terraform"}
+	expected := []string{"apk", "brew", "cargo", "clojars", "cocoapods", "composer", "conda", "cpan", "cran", "deno", "dub", "elm", "gem", "githubactions", "golang", "hackage", "haxelib", "helm", "hex", "julia", "luarocks", "maven", "nimble", "npm", "nuget", "pub", "pypi", "swift", "terraform"}
 	sort.Strings(ecosystems)
 
 	if len(ecosystems) != len(expected) {
@@ -64,6 +64,7 @@ func TestNew(t *testing.T) {
 		{"haxelib", false},
 		{"deno", false},
 		{"terraform", false},
+		{"githubactions", false},
 		{"helm", true},
 		{"swift", true},
 		{"apk", true},
@@ -110,6 +111,7 @@ func TestDefaultURL(t *testing.T) {
 		{"haxelib", "https://lib.haxe.org"},
 		{"deno", "https://apiland.deno.dev"},
 		{"terraform", "https://registry.terraform.io"},
+		{"githubactions", "https://api.github.com"},
 		{"helm", ""},
 		{"swift", ""},
 		{"apk", ""},

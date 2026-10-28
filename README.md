@@ -1,6 +1,6 @@
 # registries
 
-Go library for fetching package metadata from registry APIs. Supports 28 ecosystems with a unified interface. Also provides sub-packages for HTTP client usage (`client/`) and streaming artifact downloads (`fetch/`).
+Go library for fetching package metadata from registry APIs. Supports 29 ecosystems with a unified interface. Also provides sub-packages for HTTP client usage (`client/`) and streaming artifact downloads (`fetch/`).
 
 ## Installation
 
@@ -134,6 +134,7 @@ packages = registries.BulkFetchPackagesWithConcurrency(ctx, purls, nil, 5)
 | Maven | `pkg:maven/org.apache.commons/commons-lang3@3.12.0` |
 | RubyGems | `pkg:gem/rails@7.1.0` |
 | Terraform | `pkg:terraform/hashicorp/consul/aws@0.11.0` |
+| GitHub Actions | `pkg:githubactions/actions/checkout@v4` |
 | Alpine | `pkg:apk/alpine/curl@8.22.0-r0?arch=x86_64&repository_url=https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64` |
 
 ## Direct Registry Usage
@@ -195,8 +196,11 @@ import _ "github.com/git-pkgs/registries/all"
 | Terraform | `terraform` | https://registry.terraform.io |
 | Swift | `swift` | URL required |
 | Alpine | `apk` | URL required |
+| GitHub Actions | `githubactions` | https://api.github.com |
 
 The Alpine URL is one repository architecture directory, such as `https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64`, or the `APKINDEX.tar.gz` inside it. The client doesn't pick a release, component or architecture from a mirror root. It reads v2 `APKINDEX.tar.gz` indexes. When a directory serves a v3 `Packages.adb`, the client returns an error rather than reading the v2 index.
+
+GitHub Actions are git repositories, so `FetchPackage` reads `/repos/{owner}/{repo}` and `FetchVersions` lists tags from the GitHub REST API. Unauthenticated requests are limited to 60 per hour. A subdirectory action such as `pkg:githubactions/github/codeql-action/init@v3` resolves to the `github/codeql-action` repository. `URLs().Download` returns the `/archive/{ref}.tar.gz` source tarball for any tag, branch or commit SHA. GitHub doesn't guarantee these tarballs are byte-stable, so versions carry no `Integrity`. Dependencies and maintainers return an error wrapping `errors.ErrUnsupported`. For GitHub Enterprise Server, pass the `/api/v3` API root as the base URL.
 
 ### Swift registries
 
