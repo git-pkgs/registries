@@ -215,8 +215,10 @@ versions, err := reg.FetchVersions(ctx, "scope.package-name")
 
 Import `registries/all` to register the adapter. Identities are case-insensitive.
 Source coordinates such as `github.com/owner/repo` are rejected; the adapter does
-not infer registry identities from repository names. Swift source-based PURLs
-cannot drive these lookups, and `URLs().PURL` returns an empty string.
+not infer registry identities from repository names. `URLs().PURL` returns
+registry PURLs such as `pkg:swift/scope/package-name@1.0.0`. PURL-based lookups
+require a `repository_url` qualifier with the registry URL. Swift source-based
+PURLs cannot drive these lookups.
 
 `FetchPackage` reads metadata from the release named by the registry's
 `latest-version` link, falling back to the highest available stable release and
