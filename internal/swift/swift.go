@@ -70,6 +70,9 @@ func (r *Registry) list(ctx context.Context, name string) (*listing, error) {
 		if seen[page] {
 			return nil, fmt.Errorf("swift registry pagination loop at %s", page)
 		}
+		if len(seen) == core.MaxPages {
+			return nil, fmt.Errorf("%w: swift registry listing for %s", core.ErrTooManyPages, name)
+		}
 		seen[page] = true
 		var response struct {
 			Releases map[string]listedRelease `json:"releases"`

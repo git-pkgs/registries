@@ -51,11 +51,16 @@ func init() {
 	}
 }
 
+// maxURLLength bounds input from registry metadata; real repository URLs
+// are far shorter.
+const maxURLLength = 4096
+
 // Clean removes common noise from git URLs: schemes, auth, brackets, anchors, etc.
 // Returns just the host/path portion ready for further processing.
+// URLs longer than maxURLLength return "".
 func Clean(rawURL string) string {
 	s := strings.TrimSpace(rawURL)
-	if s == "" {
+	if s == "" || len(s) > maxURLLength {
 		return ""
 	}
 
@@ -133,62 +138,49 @@ func trimGitSuffix(s string) string {
 	return s
 }
 
-// removeSchemes strips all scheme prefixes from a URL
-func removeSchemes(s string) string {
-	for {
-		prev := s
+var scmPrefixes = []string{"scm:git:", "scm:svn:", "scm:hg:"}
 
-		// Remove scm:git:, scm:svn:, scm:hg: prefixes
-		sLower := strings.ToLower(s)
-		switch {
-		case strings.HasPrefix(sLower, "scm:git:"):
-			s = s[len("scm:git:"):]
-		case strings.HasPrefix(sLower, "scm:svn:"):
-			s = s[len("scm:svn:"):]
-		case strings.HasPrefix(sLower, "scm:hg:"):
-			s = s[len("scm:hg:"):]
-		}
-
-		// Remove standard schemes
-		s = removeScheme(s)
-
-		// Remove git// pattern
-		if strings.HasPrefix(strings.ToLower(s), "git//") {
-			s = s[5:]
-		}
-
-		// Remove leading slashes
-		s = strings.TrimLeft(s, "/")
-
-		if s == prev {
-			break
-		}
-	}
-	return s
+var schemes = []string{
+	"git+https://", "git+https:",
+	"git+ssh://", "git+ssh:",
+	"https://", "https:",
+	"http://", "http:",
+	"git://", "git:",
+	"ssh://", "ssh:",
+	"svn://", "svn:",
+	"hg://", "hg:",
+	"scm://", "scm:",
 }
 
-// removeScheme removes a single URL scheme prefix
-func removeScheme(s string) string {
-	sLower := strings.ToLower(s)
+var gitSlashPrefix = []string{"git//"}
 
-	schemes := []string{
-		"git+https://", "git+https:",
-		"git+ssh://", "git+ssh:",
-		"https://", "https:",
-		"http://", "http:",
-		"git://", "git:",
-		"ssh://", "ssh:",
-		"svn://", "svn:",
-		"hg://", "hg:",
-		"scm://", "scm:",
-	}
-
-	for _, scheme := range schemes {
-		if strings.HasPrefix(sLower, scheme) {
-			return s[len(scheme):]
+// removeSchemes strips all scheme prefixes from a URL. It advances an offset
+// rather than re-slicing and lowercasing, so repeated prefixes stay linear.
+func removeSchemes(s string) string {
+	i := 0
+	for {
+		start := i
+		i += prefixLen(s[i:], scmPrefixes)
+		i += prefixLen(s[i:], schemes)
+		i += prefixLen(s[i:], gitSlashPrefix)
+		for i < len(s) && s[i] == '/' {
+			i++
+		}
+		if i == start {
+			return s[i:]
 		}
 	}
-	return s
+}
+
+// prefixLen returns the length of the first prefix that s starts with,
+// ignoring case, or 0.
+func prefixLen(s string, prefixes []string) int {
+	for _, p := range prefixes {
+		if len(s) >= len(p) && strings.EqualFold(s[:len(p)], p) {
+			return len(p)
+		}
+	}
+	return 0
 }
 
 // removeAuth removes user:pass@ or user@ from URLs
@@ -420,9 +412,10 @@ func IsKnownHost(rawURL string) bool {
 }
 
 // Normalize cleans a git URL and ensures it has an https scheme.
+// URLs longer than maxURLLength return "".
 func Normalize(rawURL string) string {
 	s := strings.TrimSpace(rawURL)
-	if s == "" {
+	if s == "" || len(s) > maxURLLength {
 		return ""
 	}
 

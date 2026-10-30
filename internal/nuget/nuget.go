@@ -4,6 +4,7 @@ package nuget
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -213,8 +214,10 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 // fetchIntegrity fetches the catalog leaf to extract the package hash.
 // The registration index does not include packageHash, only the full
 // catalog leaf does. Errors are swallowed since integrity is best-effort.
+// The leaf URL comes from the registry response, so only follow it on the
+// registry's own origin.
 func (r *Registry) fetchIntegrity(ctx context.Context, catalogURL string) string {
-	if catalogURL == "" {
+	if catalogURL == "" || !sameOrigin(r.baseURL, catalogURL) {
 		return ""
 	}
 	var leaf catalogLeaf
@@ -229,6 +232,15 @@ func (r *Registry) fetchIntegrity(ctx context.Context, catalogURL string) string
 		algo = "sha512"
 	}
 	return algo + "-" + leaf.PackageHash
+}
+
+func sameOrigin(a, b string) bool {
+	first, err := url.Parse(a)
+	if err != nil {
+		return false
+	}
+	second, err := url.Parse(b)
+	return err == nil && first.Scheme == second.Scheme && strings.EqualFold(first.Host, second.Host)
 }
 
 func (r *Registry) FetchDependencies(ctx context.Context, name, version string) ([]core.Dependency, error) {

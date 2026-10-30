@@ -3,6 +3,7 @@ package golang
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -427,5 +428,43 @@ func TestDeriveRepoURL(t *testing.T) {
 				t.Errorf("expected %q, got %q", tt.expected, got)
 			}
 		})
+	}
+}
+
+func TestFetchVersionsPkgsiteStopsAtPageCap(t *testing.T) {
+	var requests int
+	pkgsite := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		_ = json.NewEncoder(w).Encode(pkgsiteVersions{
+			Items:         []pkgsiteVersion{{Version: fmt.Sprintf("v0.0.%d", requests)}},
+			NextPageToken: fmt.Sprint(requests),
+		})
+	}))
+	defer pkgsite.Close()
+
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/example.com/mod/@v/list":
+			_, _ = w.Write([]byte("v1.0.0\n"))
+		case "/example.com/mod/@v/v1.0.0.info":
+			_ = json.NewEncoder(w).Encode(versionInfo{Version: "v1.0.0"})
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer proxy.Close()
+
+	reg := New(proxy.URL, core.DefaultClient())
+	reg.pkgsiteURL = pkgsite.URL
+
+	versions, err := reg.FetchVersions(context.Background(), "example.com/mod")
+	if err != nil {
+		t.Fatalf("FetchVersions failed: %v", err)
+	}
+	if requests != core.MaxPages {
+		t.Errorf("made %d pkgsite requests, want %d", requests, core.MaxPages)
+	}
+	if len(versions) != 1 || versions[0].Number != "v1.0.0" {
+		t.Errorf("expected proxy fallback v1.0.0, got %+v", versions)
 	}
 }

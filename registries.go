@@ -99,6 +99,8 @@ var (
 	ErrNotFound = client.ErrNotFound
 	// ErrResponseTooLarge is returned when a response body exceeds the client limit.
 	ErrResponseTooLarge = client.ErrResponseTooLarge
+	// ErrTooManyPages is returned when a paginated version listing does not end.
+	ErrTooManyPages = core.ErrTooManyPages
 )
 
 // Error types

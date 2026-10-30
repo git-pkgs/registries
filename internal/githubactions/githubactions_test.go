@@ -337,3 +337,24 @@ func TestEcosystem(t *testing.T) {
 		t.Errorf("Ecosystem() = %q", got)
 	}
 }
+
+func TestFetchVersionsStopsAtPageCap(t *testing.T) {
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		tags := make([]map[string]any, tagsPerPage)
+		for i := range tags {
+			tags[i] = map[string]any{"name": fmt.Sprintf("v%d.%d", requests, i)}
+		}
+		_ = json.NewEncoder(w).Encode(tags)
+	}))
+	defer server.Close()
+
+	_, err := New(server.URL, core.DefaultClient()).FetchVersions(context.Background(), "actions/checkout")
+	if !errors.Is(err, core.ErrTooManyPages) {
+		t.Errorf("err = %v, want ErrTooManyPages", err)
+	}
+	if requests != core.MaxPages {
+		t.Errorf("made %d requests, want %d", requests, core.MaxPages)
+	}
+}

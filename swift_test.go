@@ -364,3 +364,18 @@ func TestSwiftReleaseURLOnOtherOrigin(t *testing.T) {
 		t.Error("cross-origin release URL accepted")
 	}
 }
+
+func TestSwiftPaginationStopsAtPageCap(t *testing.T) {
+	var requests int
+	reg := newSwiftRegistry(t, func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.Header().Set("Link", fmt.Sprintf(`<?page=%d>; rel="next"`, requests+1))
+		_, _ = fmt.Fprint(w, `{"releases":{}}`)
+	})
+	if _, err := reg.FetchVersions(context.Background(), "mona.linked-list"); !errors.Is(err, registries.ErrTooManyPages) {
+		t.Errorf("err = %v, want ErrTooManyPages", err)
+	}
+	if requests != 1000 {
+		t.Errorf("made %d requests, want 1000", requests)
+	}
+}

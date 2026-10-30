@@ -214,7 +214,10 @@ func (r *Registry) fetchVersionsPkgsite(ctx context.Context, name string) ([]cor
 	var versions []core.Version
 	token := ""
 
-	for {
+	for pages := 0; ; pages++ {
+		if pages == core.MaxPages {
+			return nil, fmt.Errorf("%w: %s versions", core.ErrTooManyPages, name)
+		}
 		q := url.Values{"limit": {fmt.Sprint(pkgsitePageLimit)}}
 		if token != "" {
 			q.Set("token", token)
