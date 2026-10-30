@@ -4,6 +4,7 @@ package nuget
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -13,8 +14,9 @@ import (
 )
 
 const (
-	DefaultURL = "https://api.nuget.org/v3"
-	ecosystem  = "nuget"
+	DefaultURL          = "https://api.nuget.org/v3"
+	ecosystem           = "nuget"
+	maxCatalogRedirects = 10
 )
 
 func init() {
@@ -220,8 +222,25 @@ func (r *Registry) fetchIntegrity(ctx context.Context, catalogURL string) string
 	if catalogURL == "" || !sameOrigin(r.baseURL, catalogURL) {
 		return ""
 	}
+	// Scope the redirect restriction to this fetch without changing the shared client.
+	catalogClient := *r.client
+	httpClient := *r.client.HTTPClient
+	checkRedirect := httpClient.CheckRedirect
+	httpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if !sameOrigin(r.baseURL, req.URL.String()) {
+			return fmt.Errorf("nuget catalog redirect leaves registry origin")
+		}
+		if len(via) >= maxCatalogRedirects {
+			return fmt.Errorf("nuget catalog stopped after %d redirects", maxCatalogRedirects)
+		}
+		if checkRedirect != nil {
+			return checkRedirect(req, via)
+		}
+		return nil
+	}
+	catalogClient.HTTPClient = &httpClient
 	var leaf catalogLeaf
-	if err := r.client.GetJSON(ctx, catalogURL, &leaf); err != nil {
+	if err := catalogClient.GetJSON(ctx, catalogURL, &leaf); err != nil {
 		return ""
 	}
 	if leaf.PackageHash == "" {
