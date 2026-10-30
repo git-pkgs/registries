@@ -61,7 +61,8 @@ func testNugetCatalogRedirect(t *testing.T, target string, denyRedirect bool, wa
 	defer server.Close()
 	baseURL = server.URL
 
-	c := registries.NewClient(registries.WithMaxRetries(0))
+	c := registries.DefaultClient()
+	maxRetries := c.MaxRetries
 	policyCalls := 0
 	if denyRedirect {
 		c.HTTPClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
@@ -88,6 +89,12 @@ func testNugetCatalogRedirect(t *testing.T, target string, denyRedirect bool, wa
 	}
 	if target == "/catalog/start" && redirectHits != 10 {
 		t.Errorf("redirect loop made %d requests, want 10", redirectHits)
+	}
+	if target != "/catalog/start" && redirectHits != 1 {
+		t.Errorf("catalog made %d requests, want 1", redirectHits)
+	}
+	if c.MaxRetries != maxRetries {
+		t.Error("changed the shared client's retry policy")
 	}
 	if !denyRedirect && c.HTTPClient.CheckRedirect != nil {
 		t.Error("changed the shared client's redirect policy")

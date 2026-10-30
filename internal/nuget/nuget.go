@@ -224,6 +224,8 @@ func (r *Registry) fetchIntegrity(ctx context.Context, catalogURL string) string
 	}
 	// Scope the redirect restriction to this fetch without changing the shared client.
 	catalogClient := *r.client
+	// Integrity is best-effort; avoid backoff for rejected catalog redirects.
+	catalogClient.MaxRetries = 0
 	httpClient := *r.client.HTTPClient
 	checkRedirect := httpClient.CheckRedirect
 	httpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
