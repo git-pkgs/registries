@@ -9,7 +9,7 @@ require (
 	github.com/facebookgo/clock v0.0.0-20150410010913-600d898af40a
 	github.com/git-pkgs/artifacts v0.2.1
 	github.com/git-pkgs/pom v0.1.8
-	github.com/git-pkgs/purl v0.1.23
+	github.com/git-pkgs/purl v0.2.1
 	github.com/git-pkgs/spdx v0.3.3
 	github.com/git-pkgs/vers v0.7.2
 	github.com/opencontainers/go-digest v1.0.0

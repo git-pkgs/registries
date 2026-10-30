@@ -120,7 +120,6 @@ func TestSwiftRegistryURLsAndIdentity(t *testing.T) {
 		t.Errorf("Registry = %q", got)
 	}
 	if urls.Download("mona.linked-list", "") != "" ||
-		urls.PURL("mona.linked-list", "1.0.0") != "" ||
 		urls.Documentation("mona.linked-list", "1.0.0") != "" {
 		t.Error("unexpected inferred URL")
 	}
@@ -131,6 +130,9 @@ func TestSwiftRegistryURLsAndIdentity(t *testing.T) {
 	} {
 		if _, err := reg.FetchPackage(context.Background(), name); err == nil {
 			t.Errorf("accepted invalid identity %q", name)
+		}
+		if got := urls.PURL(name, "1.0.0"); got != "" {
+			t.Errorf("PURL accepted invalid registry identity %q: %q", name, got)
 		}
 	}
 	for _, version := range []string{"../1", "1.0.0/../../x", "1.0.0?x", "main"} {
@@ -144,6 +146,32 @@ func TestSwiftRegistryURLsAndIdentity(t *testing.T) {
 	if _, err := registries.FetchPackageFromPURL(context.Background(),
 		"pkg:swift/github.com/Mona/Linked-List?repository_url=https%3A%2F%2Fexample.com", nil); err == nil {
 		t.Fatal("source coordinate was treated as a registry identity")
+	}
+}
+
+func TestSwiftRegistryPURLs(t *testing.T) {
+	reg, err := registries.New("swift", "https://registry.example.com", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, version, want string }{
+		{"apple.swift-argument-parser", "1.7.0", "pkg:swift/apple/swift-argument-parser@1.7.0"},
+		{"Mona.Linked-List", "", "pkg:swift/Mona/Linked-List"},
+		{"My-Scope2.My_Package", "1.0.0+build", "pkg:swift/My-Scope2/My_Package@1.0.0%2Bbuild"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			urls := registries.BuildURLs(reg.URLs(), tc.name, tc.version)
+			if got := urls["purl"]; got != tc.want {
+				t.Fatalf("PURL = %q, want %q", got, tc.want)
+			}
+			parsed, err := registries.ParsePURL(urls["purl"])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if parsed.FullName() != tc.name || parsed.Version != tc.version {
+				t.Errorf("round trip: name = %q, version = %q", parsed.FullName(), parsed.Version)
+			}
+		})
 	}
 }
 

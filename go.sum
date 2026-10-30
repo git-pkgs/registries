@@ -8,8 +8,8 @@ github.com/git-pkgs/artifacts v0.2.1 h1:VwdxR4yTDaqBZ34h0slxQBVyr2Xfa+QGOKCKviMx
 github.com/git-pkgs/artifacts v0.2.1/go.mod h1:Otosgq52pXT5UNN7lh6s/lszpWKVDO8XrOjN1M70/IA=
 github.com/git-pkgs/pom v0.1.8 h1:mXCuWw6XkrKKZb6IurRZyIznYLPhV5AYg5ZO38Uj/l8=
 github.com/git-pkgs/pom v0.1.8/go.mod h1:sQBeYRzjCUn77fcABPn6I/a1aBHFxm55jTmkNxYtGtw=
-github.com/git-pkgs/purl v0.1.23 h1:RG7F73S4ZnbAnB/posWf2WS4OhdG0xUbyX8UIkEUhPw=
-github.com/git-pkgs/purl v0.1.23/go.mod h1:l8rCfvt5iXVrFIcoQ8+vCLOaHhrtEW2id0LENP+IzMw=
+github.com/git-pkgs/purl v0.2.1 h1:b46hRlOMbrG6aXjjFJdYixGi5WTh0TLlAnH9iNeuOS0=
+github.com/git-pkgs/purl v0.2.1/go.mod h1:l8rCfvt5iXVrFIcoQ8+vCLOaHhrtEW2id0LENP+IzMw=
 github.com/git-pkgs/spdx v0.3.3 h1:xXlUoZzjDSkwxC6mWHfaW+kc8a0+LH6d+gGHuZWftqI=
 github.com/git-pkgs/spdx v0.3.3/go.mod h1:n9rAicgw+Wqtfursju6oKaAL6cUCTiIS926mb1KWoKU=
 github.com/git-pkgs/vers v0.7.2 h1:Ctex1O+Ai/FONmyDaw37EolBXg0og6UdxbCjjYbeRHs=
