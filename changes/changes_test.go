@@ -121,12 +121,18 @@ type fakeReplicate struct {
 	// noLastSeq leaves last_seq out of responses from failFrom on.
 	noLastSeq bool
 	asked     []string
+	// token, when set, is required as the token query parameter.
+	token string
 }
 
 func (f *fakeReplicate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
+	if f.token != "" && r.URL.Query().Get("token") != f.token {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
 	if r.URL.Path == "/registry/" {
 		_, _ = fmt.Fprintf(w, `{"db_name":"registry","update_seq":%d}`, len(f.ids))
 		return
@@ -188,6 +194,28 @@ func TestNPM(t *testing.T) {
 	}
 	if want := []string{"1", "4"}; !slices.Equal(f.asked, want) {
 		t.Errorf("asked since %q, want %q", f.asked, want)
+	}
+}
+
+// TestNPMQueryInURL checks that a query on the feed URL is kept, for the
+// database document Start reads as for the pages.
+func TestNPMQueryInURL(t *testing.T) {
+	f := &fakeReplicate{ids: []string{"old"}, token: "example"}
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+	feed := NewNPM(WithClient(testClient(srv)), WithURL(srv.URL+"/registry/_changes?token=example"))
+	ctx := context.Background()
+
+	cursor, err := feed.Start(ctx)
+	if err != nil || cursor != "1" {
+		t.Fatalf("Start = %q, %v; want 1", cursor, err)
+	}
+	f.mu.Lock()
+	f.ids = append(f.ids, "lodash")
+	f.mu.Unlock()
+	c, cursor, err := feed.Changes(ctx, cursor)
+	if err != nil || !slices.Equal(c.Names, []string{"lodash"}) || cursor != "2" {
+		t.Errorf("changes = %+v, %q, %v; want lodash and 2", c, cursor, err)
 	}
 }
 

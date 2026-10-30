@@ -52,13 +52,29 @@ func (f *NPM) Start(ctx context.Context) (Cursor, error) {
 	var info struct {
 		UpdateSeq json.RawMessage `json:"update_seq"`
 	}
-	if err := f.o.client.GetJSON(ctx, strings.TrimSuffix(f.o.url, "_changes"), &info); err != nil {
+	dbURL, err := npmDatabaseURL(f.o.url)
+	if err != nil {
+		return "", fmt.Errorf("npm change feed: %w", err)
+	}
+	if err := f.o.client.GetJSON(ctx, dbURL, &info); err != nil {
 		return "", fmt.Errorf("npm change feed: %w", err)
 	}
 	if len(info.UpdateSeq) == 0 {
 		return "", errors.New("npm change feed: no update_seq to start from")
 	}
 	return seqCursor(info.UpdateSeq), nil
+}
+
+// npmDatabaseURL returns the database document's URL for a feed URL: its
+// path without "_changes", keeping the trailing slash and any query.
+func npmDatabaseURL(feedURL string) (string, error) {
+	u, err := url.Parse(feedURL)
+	if err != nil {
+		return "", err
+	}
+	u.Path = strings.TrimSuffix(u.Path, "_changes")
+	u.RawPath = strings.TrimSuffix(u.RawPath, "_changes")
+	return u.String(), nil
 }
 
 // Changes reads pages until one is not full, or up to ten. When a later page
