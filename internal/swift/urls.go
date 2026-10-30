@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/git-pkgs/purl"
 	"github.com/git-pkgs/vers"
 )
 
@@ -66,5 +67,9 @@ func (u *URLs) Download(name, version string) string {
 
 func (u *URLs) Documentation(_, _ string) string { return "" }
 
-// Swift PURLs identify source repositories, not registry-scoped packages.
-func (u *URLs) PURL(_, _ string) string { return "" }
+func (u *URLs) PURL(name, version string) string {
+	if _, err := identityPath(name); err != nil {
+		return ""
+	}
+	return purl.BuildPURLString(ecosystem, name, version, "")
+}
