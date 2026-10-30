@@ -1,6 +1,6 @@
 # registries
 
-Go library for fetching package metadata from registry APIs. Supports 29 ecosystems with a unified interface. Also provides sub-packages for HTTP client usage (`client/`) and streaming artifact downloads (`fetch/`).
+Go library for fetching package metadata from registry APIs. Supports 29 ecosystems with a unified interface. Also provides sub-packages for HTTP client usage (`client/`), streaming artifact downloads (`fetch/`) and registry change feeds (`changes/`).
 
 ## Installation
 
@@ -567,6 +567,30 @@ opts := safehttp.Options{AllowPrivateHosts: []string{"gitlab.internal"}}
 resolver := fetch.NewResolver(fetch.WithAddressPolicy(opts))
 client := safehttp.New(nil, opts)
 ```
+
+## Change Feeds (`changes/`)
+
+Some registries publish a feed of the packages that changed since a given point. `changes` reads them for npm (`replicate.npmjs.com`) and Packagist (`metadata/changes.json`), so a cache or mirror can refresh just those packages.
+
+Feeds are stateless: the caller keeps the cursor, and moves on to the one `Changes` returns only after acting on the changes, so a failure leaves them to be read again. A `Cursor` is a string and can be stored across restarts.
+
+```go
+feed := changes.NewNPM() // or changes.NewPackagist(changes.WithURL(...))
+
+cursor, err := feed.Start(ctx)
+// later, repeatedly:
+c, next, err := feed.Changes(ctx, cursor)
+if err != nil {
+    return err // cursor stays where it was
+}
+if c.All {
+    // the feed lost track; treat every package as changed
+}
+refresh(c.Names)
+cursor = next
+```
+
+Both take `changes.WithClient` for a configured `*client.Client` and `changes.WithURL` for a registry other than the public one. Packagist names the metadata files that changed (`vendor/pkg`, `vendor/pkg~dev`); a deleted package is reported as both.
 
 ## Private Registries
 
