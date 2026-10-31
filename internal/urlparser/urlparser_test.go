@@ -1,6 +1,10 @@
 package urlparser
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"time"
+)
 
 func TestParse(t *testing.T) {
 	tests := []struct {
@@ -358,5 +362,34 @@ func TestClean(t *testing.T) {
 				t.Errorf("Clean(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRemoveSchemesRepeatedPrefixIsLinear(t *testing.T) {
+	input := strings.Repeat("GIT:", 25_000) + "github.com/foo/bar"
+	start := time.Now()
+	got := removeSchemes(input)
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("removeSchemes took %v on %d bytes", elapsed, len(input))
+	}
+	if got != "github.com/foo/bar" {
+		t.Errorf("removeSchemes = %q", got)
+	}
+}
+
+func TestOverlongURLRejected(t *testing.T) {
+	input := strings.Repeat("GIT:", 100_000) + "github.com/foo/bar"
+	start := time.Now()
+	if got := Parse(input); got != "" {
+		t.Errorf("Parse = %q, want empty", got)
+	}
+	if got := CanonicalURL(input); got != "" {
+		t.Errorf("CanonicalURL = %q, want empty", got)
+	}
+	if got := Normalize(input); got != "" {
+		t.Errorf("Normalize = %q, want empty", got)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("took %v on %d bytes", elapsed, len(input))
 	}
 }

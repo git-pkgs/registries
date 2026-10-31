@@ -4,6 +4,8 @@ package nuget
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -12,8 +14,9 @@ import (
 )
 
 const (
-	DefaultURL = "https://api.nuget.org/v3"
-	ecosystem  = "nuget"
+	DefaultURL          = "https://api.nuget.org/v3"
+	ecosystem           = "nuget"
+	maxCatalogRedirects = 10
 )
 
 func init() {
@@ -213,12 +216,33 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 // fetchIntegrity fetches the catalog leaf to extract the package hash.
 // The registration index does not include packageHash, only the full
 // catalog leaf does. Errors are swallowed since integrity is best-effort.
+// The leaf URL comes from the registry response, so only follow it on the
+// registry's own origin.
 func (r *Registry) fetchIntegrity(ctx context.Context, catalogURL string) string {
-	if catalogURL == "" {
+	if catalogURL == "" || !sameOrigin(r.baseURL, catalogURL) {
 		return ""
 	}
+	// Scope the redirect restriction to this fetch without changing the shared client.
+	catalogClient := *r.client
+	// Integrity is best-effort; avoid backoff for rejected catalog redirects.
+	catalogClient.MaxRetries = 0
+	httpClient := *r.client.HTTPClient
+	checkRedirect := httpClient.CheckRedirect
+	httpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if !sameOrigin(r.baseURL, req.URL.String()) {
+			return fmt.Errorf("nuget catalog redirect leaves registry origin")
+		}
+		if len(via) >= maxCatalogRedirects {
+			return fmt.Errorf("nuget catalog stopped after %d redirects", maxCatalogRedirects)
+		}
+		if checkRedirect != nil {
+			return checkRedirect(req, via)
+		}
+		return nil
+	}
+	catalogClient.HTTPClient = &httpClient
 	var leaf catalogLeaf
-	if err := r.client.GetJSON(ctx, catalogURL, &leaf); err != nil {
+	if err := catalogClient.GetJSON(ctx, catalogURL, &leaf); err != nil {
 		return ""
 	}
 	if leaf.PackageHash == "" {
@@ -229,6 +253,15 @@ func (r *Registry) fetchIntegrity(ctx context.Context, catalogURL string) string
 		algo = "sha512"
 	}
 	return algo + "-" + leaf.PackageHash
+}
+
+func sameOrigin(a, b string) bool {
+	first, err := url.Parse(a)
+	if err != nil {
+		return false
+	}
+	second, err := url.Parse(b)
+	return err == nil && first.Scheme == second.Scheme && strings.EqualFold(first.Host, second.Host)
 }
 
 func (r *Registry) FetchDependencies(ctx context.Context, name, version string) ([]core.Dependency, error) {

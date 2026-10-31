@@ -313,3 +313,37 @@ func TestEcosystem(t *testing.T) {
 		t.Errorf("expected ecosystem 'nuget', got %q", reg.Ecosystem())
 	}
 }
+
+func TestFetchVersionsSkipsCatalogURLOnOtherOrigin(t *testing.T) {
+	var otherHits int
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		otherHits++
+		_ = json.NewEncoder(w).Encode(catalogLeaf{PackageHash: "leaked", PackageHashAlgorithm: "SHA512"})
+	}))
+	defer other.Close()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(registrationResponse{
+			Items: []registrationPage{{Items: []registrationLeaf{{
+				CatalogEntry: catalogEntry{
+					CatalogURL: other.URL + "/latest/meta-data/",
+					ID:         "xunit",
+					Version:    "2.6.0",
+					Listed:     true,
+				},
+			}}}},
+		})
+	}))
+	defer server.Close()
+
+	versions, err := New(server.URL, core.DefaultClient()).FetchVersions(context.Background(), "xunit")
+	if err != nil {
+		t.Fatalf("FetchVersions failed: %v", err)
+	}
+	if otherHits != 0 {
+		t.Errorf("fetched catalog URL on another origin %d times", otherHits)
+	}
+	if len(versions) != 1 || versions[0].Integrity != "" {
+		t.Errorf("versions = %+v, want one version with empty integrity", versions)
+	}
+}

@@ -183,6 +183,9 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 
 	var versions []core.Version
 	for page := 1; ; page++ {
+		if page > core.MaxPages {
+			return nil, fmt.Errorf("%w: %s tags", core.ErrTooManyPages, name)
+		}
 		endpoint := fmt.Sprintf("%s/tags?per_page=%d&page=%d", r.repoEndpoint(a), tagsPerPage, page)
 		var tags []tagResponse
 		if err := r.getJSON(ctx, endpoint, &tags); err != nil {
