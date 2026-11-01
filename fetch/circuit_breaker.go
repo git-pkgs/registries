@@ -131,10 +131,10 @@ func (cbf *CircuitBreakerFetcher) FetchWithHeaders(ctx context.Context, fetchURL
 	var fetchErr error
 	err := breaker.Call(func() error {
 		artifact, fetchErr = cbf.fetcher.FetchWithHeaders(ctx, fetchURL, headers)
-		if errors.Is(fetchErr, ErrNotFound) || errors.Is(fetchErr, ErrArtifactTooLarge) || errors.Is(fetchErr, client.ErrUpstreamHeld) {
-			return nil
+		if countsAgainstBreaker(fetchErr) {
+			return fetchErr
 		}
-		return fetchErr
+		return nil
 	}, 0)
 
 	if err != nil {
@@ -158,10 +158,10 @@ func (cbf *CircuitBreakerFetcher) FetchObservedWithHeaders(ctx context.Context, 
 	var fetchErr error
 	err := breaker.Call(func() error {
 		artifact, fetchErr = cbf.fetcher.FetchObservedWithHeaders(ctx, fetchURL, headers)
-		if errors.Is(fetchErr, ErrNotFound) || errors.Is(fetchErr, ErrArtifactTooLarge) || errors.Is(fetchErr, client.ErrUpstreamHeld) {
-			return nil
+		if countsAgainstBreaker(fetchErr) {
+			return fetchErr
 		}
-		return fetchErr
+		return nil
 	}, 0)
 
 	if err != nil {
@@ -179,16 +179,38 @@ func (cbf *CircuitBreakerFetcher) Head(ctx context.Context, headURL string) (siz
 	var headErr error
 	err = breaker.Call(func() error {
 		size, contentType, headErr = cbf.fetcher.Head(ctx, headURL)
-		if errors.Is(headErr, ErrNotFound) || errors.Is(headErr, client.ErrUpstreamHeld) {
-			return nil
+		if countsAgainstBreaker(headErr) {
+			return headErr
 		}
-		return headErr
+		return nil
 	}, 0)
 
 	if err != nil {
 		return 0, "", breakerError(registry, err)
 	}
 	return size, contentType, headErr
+}
+
+// countsAgainstBreaker reports whether err counts as a failure of the registry.
+//
+// A registry that answers is up, whatever it answered: a 404, any other 4xx
+// status such as a 403 policy denial or a 409, an artifact over the size limit
+// and a request held by rate limiting are all answers, so none of them count
+// against the breaker. Only what says the registry could not answer does:
+// transport errors, 5xx responses and rate limiting, which asks for the backoff
+// the breaker exists to provide.
+func countsAgainstBreaker(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrArtifactTooLarge) || errors.Is(err, client.ErrUpstreamHeld) {
+		return false
+	}
+	var status *StatusError
+	if errors.As(err, &status) && status.Code >= 400 && status.Code < 500 {
+		return false
+	}
+	return true
 }
 
 // breakerError maps the breaker's own open-circuit error onto ErrUpstreamDown,
