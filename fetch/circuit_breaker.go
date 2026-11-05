@@ -191,14 +191,7 @@ func (cbf *CircuitBreakerFetcher) Head(ctx context.Context, headURL string) (siz
 	return size, contentType, headErr
 }
 
-// countsAgainstBreaker reports whether err counts as a failure of the registry.
-//
-// A registry that answers is up, whatever it answered: a 404, any other 4xx
-// status such as a 403 policy denial or a 409, an artifact over the size limit
-// and a request held by rate limiting are all answers, so none of them count
-// against the breaker. Only what says the registry could not answer does:
-// transport errors, 5xx responses and rate limiting, which asks for the backoff
-// the breaker exists to provide.
+// countsAgainstBreaker reports whether err means the registry could not answer.
 func countsAgainstBreaker(err error) bool {
 	if err == nil {
 		return false

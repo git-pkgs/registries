@@ -11,6 +11,9 @@ type StatusError struct {
 	// Body is what the upstream sent with the status, truncated to
 	// maxErrBodySize. Head reads no body, so it is empty for a Head request.
 	Body string
+	// ContentType is the Content-Type the upstream sent with the status, so a
+	// caller can forward the body as the upstream labelled it.
+	ContentType string
 }
 
 func (e *StatusError) Error() string {
