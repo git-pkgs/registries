@@ -60,6 +60,73 @@ func TestCircuitBreakerClientErrorsDoNotTrip(t *testing.T) {
 			}
 		})
 	}
+
+	// A 304 answers a conditional request, so it is the registry answering too.
+	// The server sends neither a body nor a Content-Type with it.
+	t.Run(http.StatusText(http.StatusNotModified), func(t *testing.T) {
+		var hits atomic.Int32
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits.Add(1)
+			w.WriteHeader(http.StatusNotModified)
+		}))
+		defer server.Close()
+
+		cbFetcher := NewCircuitBreakerFetcher(NewFetcher(WithMaxRetries(0), WithBaseDelay(0)))
+		headers := http.Header{"If-None-Match": []string{`"etag"`}}
+
+		const attempts = 20
+		for range attempts {
+			_, err := cbFetcher.FetchWithHeaders(context.Background(), server.URL+"/artifact.tar.gz", headers)
+			var status *StatusError
+			if !errors.As(err, &status) {
+				t.Fatalf("want a StatusError passed through, got %v", err)
+			}
+			if status.Code != http.StatusNotModified || status.Body != "" || status.ContentType != "" {
+				t.Fatalf("got status %d body %q content type %q, want 304 without body or content type",
+					status.Code, status.Body, status.ContentType)
+			}
+		}
+
+		if got := hits.Load(); got != attempts {
+			t.Errorf("breaker swallowed requests: want %d upstream hits, got %d", attempts, got)
+		}
+		for registry, state := range cbFetcher.GetBreakerState() {
+			if state != "closed" {
+				t.Errorf("breaker for %s is %s, want closed", registry, state)
+			}
+		}
+	})
+}
+
+// The observed fetch path shares the predicate, so a repeated 4xx must reach
+// the caller there as well and leave the breaker closed.
+func TestCircuitBreakerObservedClientErrorsDoNotTrip(t *testing.T) {
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	cbFetcher := NewCircuitBreakerFetcher(NewFetcher(WithMaxRetries(0), WithBaseDelay(0)))
+
+	const attempts = 20
+	for range attempts {
+		_, err := cbFetcher.FetchObservedWithHeaders(context.Background(), server.URL+"/artifact.tar.gz", nil)
+		var status *StatusError
+		if !errors.As(err, &status) || status.Code != http.StatusForbidden {
+			t.Fatalf("want a 403 StatusError passed through, got %v", err)
+		}
+	}
+
+	if got := hits.Load(); got != attempts {
+		t.Errorf("breaker swallowed requests: want %d upstream hits, got %d", attempts, got)
+	}
+	for registry, state := range cbFetcher.GetBreakerState() {
+		if state != "closed" {
+			t.Errorf("breaker for %s is %s, want closed", registry, state)
+		}
+	}
 }
 
 func TestCircuitBreakerHeadClientErrorDoesNotTrip(t *testing.T) {

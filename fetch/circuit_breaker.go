@@ -200,7 +200,7 @@ func countsAgainstBreaker(err error) bool {
 		return false
 	}
 	var status *StatusError
-	if errors.As(err, &status) && status.Code >= 400 && status.Code < 500 {
+	if errors.As(err, &status) {
 		return false
 	}
 	return true
