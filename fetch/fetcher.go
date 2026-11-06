@@ -290,7 +290,11 @@ func (f *Fetcher) doFetch(ctx context.Context, url string, headers http.Header, 
 	default:
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrBodySize))
 		_ = resp.Body.Close()
-		return nil, nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
+		return nil, nil, &StatusError{
+			Code:        resp.StatusCode,
+			Body:        string(body),
+			ContentType: resp.Header.Get("Content-Type"),
+		}
 	}
 }
 
@@ -319,8 +323,14 @@ func (f *Fetcher) Head(ctx context.Context, url string) (size int64, contentType
 	if resp.StatusCode == http.StatusNotFound {
 		return 0, "", ErrNotFound
 	}
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return 0, "", ErrRateLimited
+	}
+	if resp.StatusCode >= serverErrThreshold {
+		return 0, "", ErrUpstreamDown
+	}
 	if resp.StatusCode != http.StatusOK {
-		return 0, "", fmt.Errorf("unexpected status %d", resp.StatusCode)
+		return 0, "", &StatusError{Code: resp.StatusCode, ContentType: resp.Header.Get("Content-Type")}
 	}
 
 	size = -1
