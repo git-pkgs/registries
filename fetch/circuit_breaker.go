@@ -131,10 +131,10 @@ func (cbf *CircuitBreakerFetcher) FetchWithHeaders(ctx context.Context, fetchURL
 	var fetchErr error
 	err := breaker.Call(func() error {
 		artifact, fetchErr = cbf.fetcher.FetchWithHeaders(ctx, fetchURL, headers)
-		if errors.Is(fetchErr, ErrNotFound) || errors.Is(fetchErr, ErrArtifactTooLarge) || errors.Is(fetchErr, client.ErrUpstreamHeld) {
-			return nil
+		if countsAgainstBreaker(fetchErr) {
+			return fetchErr
 		}
-		return fetchErr
+		return nil
 	}, 0)
 
 	if err != nil {
@@ -158,10 +158,10 @@ func (cbf *CircuitBreakerFetcher) FetchObservedWithHeaders(ctx context.Context, 
 	var fetchErr error
 	err := breaker.Call(func() error {
 		artifact, fetchErr = cbf.fetcher.FetchObservedWithHeaders(ctx, fetchURL, headers)
-		if errors.Is(fetchErr, ErrNotFound) || errors.Is(fetchErr, ErrArtifactTooLarge) || errors.Is(fetchErr, client.ErrUpstreamHeld) {
-			return nil
+		if countsAgainstBreaker(fetchErr) {
+			return fetchErr
 		}
-		return fetchErr
+		return nil
 	}, 0)
 
 	if err != nil {
@@ -179,16 +179,28 @@ func (cbf *CircuitBreakerFetcher) Head(ctx context.Context, headURL string) (siz
 	var headErr error
 	err = breaker.Call(func() error {
 		size, contentType, headErr = cbf.fetcher.Head(ctx, headURL)
-		if errors.Is(headErr, ErrNotFound) || errors.Is(headErr, client.ErrUpstreamHeld) {
-			return nil
+		if countsAgainstBreaker(headErr) {
+			return headErr
 		}
-		return headErr
+		return nil
 	}, 0)
 
 	if err != nil {
 		return 0, "", breakerError(registry, err)
 	}
 	return size, contentType, headErr
+}
+
+// countsAgainstBreaker reports whether err means the registry could not answer.
+func countsAgainstBreaker(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrArtifactTooLarge) || errors.Is(err, client.ErrUpstreamHeld) {
+		return false
+	}
+	var status *StatusError
+	return !errors.As(err, &status)
 }
 
 // breakerError maps the breaker's own open-circuit error onto ErrUpstreamDown,

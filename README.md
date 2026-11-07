@@ -508,6 +508,8 @@ When both `WithAuthFunc` and `FetchWithHeaders` set the same header, `WithAuthFu
 
 Wrap a fetcher with per-host circuit breakers to avoid hammering a failing registry. The breaker trips once 5 failures land inside its rolling 10 second failure window, then retries with exponential backoff (30s initial, 5min max). While it is open, one request per backoff interval is let through as a probe and the rest fail with `ErrUpstreamDown` without contacting the registry; a probe that succeeds closes the breaker again. Retries never give up, so a breaker recovers no matter how long the registry stayed down.
 
+A registry that answers is up, whatever it answered: a 4xx response such as a 404, a 403 policy denial or a 409 does not count as a failure, so a run of refused downloads cannot open the breaker. Only transport errors, rate limiting and 5xx responses count.
+
 ```go
 f := fetch.NewFetcher()
 cbf := fetch.NewCircuitBreakerFetcher(f)
