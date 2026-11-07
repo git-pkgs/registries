@@ -200,10 +200,7 @@ func countsAgainstBreaker(err error) bool {
 		return false
 	}
 	var status *StatusError
-	if errors.As(err, &status) {
-		return false
-	}
-	return true
+	return !errors.As(err, &status)
 }
 
 // breakerError maps the breaker's own open-circuit error onto ErrUpstreamDown,
