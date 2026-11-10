@@ -3,7 +3,9 @@
 //
 //  1. Dial-time IP gate. DNS is resolved once per dial; each resolved
 //     address is checked against the block list (loopback, RFC1918,
-//     CGNAT 100.64.0.0/10, link-local, multicast, unspecified) before
+//     CGNAT 100.64.0.0/10, link-local, multicast, unspecified, and IPv6
+//     addresses that carry such an IPv4 address: NAT64, 6to4 and
+//     IPv4-compatible) before
 //     any TCP connect. The connection then dials the resolved IP
 //     directly, so a rebind between check and connect cannot escape
 //     the gate.
@@ -176,7 +178,44 @@ func (g *ipGate) dial(ctx context.Context, network, addr string, dial func(conte
 	return nil, fmt.Errorf("safehttp: no addresses resolved for %s", host)
 }
 
-var cgnat = mustCIDR("100.64.0.0/10")
+var (
+	cgnat = mustCIDR("100.64.0.0/10")
+	// nat64 is the NAT64 well-known prefix (RFC 6052): a gateway forwards
+	// 64:ff9b::a.b.c.d to the IPv4 address a.b.c.d.
+	nat64 = mustCIDR("64:ff9b::/96")
+	// nat64Local is the local-use NAT64 prefix (RFC 8215). Where the IPv4
+	// address sits in it depends on the network, so it is treated as
+	// private.
+	nat64Local = mustCIDR("64:ff9b:1::/48")
+	// sixToFour is the 6to4 prefix (RFC 3056): 2002:AABB:CCDD::/48 is
+	// relayed to the IPv4 address AA.BB.CC.DD.
+	sixToFour = mustCIDR("2002::/16")
+	// ipv4Compatible holds the deprecated IPv4-compatible addresses
+	// ::a.b.c.d (RFC 4291).
+	ipv4Compatible = mustCIDR("::/96")
+)
+
+// embeddedIPv4 returns the IPv4 address that ip reaches through a NAT64
+// gateway or a 6to4 relay, or as an IPv4-compatible address, and nil for
+// any other address. IPv4-mapped addresses are already IPv4 to net.IP.
+func embeddedIPv4(ip net.IP) net.IP {
+	if ip.To4() != nil {
+		return nil
+	}
+	ip16 := ip.To16()
+	switch {
+	case ip16 == nil:
+		return nil
+	case nat64.Contains(ip16):
+		return net.IPv4(ip16[12], ip16[13], ip16[14], ip16[15])
+	case sixToFour.Contains(ip16):
+		return net.IPv4(ip16[2], ip16[3], ip16[4], ip16[5])
+	case ipv4Compatible.Contains(ip16) && ip16[12] != 0:
+		// ::/104, which holds :: and ::1, embeds no routable address.
+		return net.IPv4(ip16[12], ip16[13], ip16[14], ip16[15])
+	}
+	return nil
+}
 
 func mustCIDR(s string) *net.IPNet {
 	_, n, err := net.ParseCIDR(s)
@@ -212,6 +251,14 @@ func (g *ipGate) checkHost(host string, ip net.IP) error {
 		}
 		if cgnat.Contains(ip) {
 			return blockedErr(ip, "CGNAT")
+		}
+		if nat64Local.Contains(ip) {
+			return blockedErr(ip, "private")
+		}
+	}
+	if embedded := embeddedIPv4(ip); embedded != nil {
+		if err := g.checkHost(host, embedded); err != nil {
+			return fmt.Errorf("%w, embedded in %s", err, ip)
 		}
 	}
 	return nil

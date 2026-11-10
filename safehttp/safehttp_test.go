@@ -45,6 +45,41 @@ func TestCheckIP_Blocks(t *testing.T) {
 	}
 }
 
+// IPv6 addresses that carry an IPv4 address reach that address through a
+// NAT64 gateway or a 6to4 relay, so they are checked as the IPv4 address.
+func TestCheckIP_BlocksEmbeddedIPv4(t *testing.T) {
+	g := newGate(Options{})
+	cases := map[string]string{
+		"64:ff9b::a9fe:a9fe": "link-local", // NAT64 well-known prefix, 169.254.169.254
+		"64:ff9b::a00:1":     "private",    // NAT64, 10.0.0.1
+		"64:ff9b::7f00:1":    "loopback",   // NAT64, 127.0.0.1
+		"64:ff9b::6440:1":    "CGNAT",      // NAT64, 100.64.0.1
+		"64:ff9b:1::1":       "private",    // local-use NAT64 prefix (RFC 8215)
+		"2002:a00:1::1":      "private",    // 6to4, 10.0.0.1
+		"2002:a9fe:a9fe::":   "link-local", // 6to4, 169.254.169.254
+		"::a00:1":            "private",    // IPv4-compatible, 10.0.0.1
+		"::7f00:1":           "loopback",   // IPv4-compatible, 127.0.0.1
+	}
+	for in, wantKind := range cases {
+		err := g.check(net.ParseIP(in))
+		if err == nil {
+			t.Errorf("checkIP(%s) = nil; want %s", in, wantKind)
+			continue
+		}
+		if !strings.Contains(err.Error(), wantKind) {
+			t.Errorf("checkIP(%s) = %v; want kind %q", in, err, wantKind)
+		}
+	}
+	for _, in := range []string{"64:ff9b::808:808", "2002:808:808::1"} {
+		if err := g.check(net.ParseIP(in)); err != nil {
+			t.Errorf("checkIP(%s) = %v; want nil for a public embedded address", in, err)
+		}
+	}
+	if err := newGate(Options{AllowPrivate: true}).check(net.ParseIP("64:ff9b::a00:1")); err != nil {
+		t.Errorf("checkIP(64:ff9b::a00:1) with AllowPrivate = %v; want nil", err)
+	}
+}
+
 func TestCheckIP_Allows(t *testing.T) {
 	g := newGate(Options{})
 	for _, in := range []string{"8.8.8.8", "1.1.1.1", "2606:4700:4700::1111"} {
