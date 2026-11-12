@@ -47,8 +47,9 @@ func (u *URLs) endpoint(name, version string) (string, error) {
 		return "", err
 	}
 	base, err := url.Parse(u.baseURL)
+	// Rejecting any ? or # also catches empty delimiters, which url.Parse drops.
 	if err != nil || base.Host == "" || (base.Scheme != "https" && base.Scheme != "http") ||
-		base.RawQuery != "" || base.Fragment != "" || base.User != nil {
+		strings.ContainsAny(u.baseURL, "?#") || base.User != nil {
 		return "", fmt.Errorf("invalid APM registry URL %q", u.baseURL)
 	}
 	endpoint := strings.TrimRight(u.baseURL, "/") + "/v1/packages/" + escape(owner) + "/" + escape(repo) + "/versions"

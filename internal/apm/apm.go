@@ -75,7 +75,7 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 	if resp.Versions == nil {
 		return nil, fmt.Errorf("APM registry response for %s has no versions array", name)
 	}
-	if resp.Package != "" && !strings.EqualFold(resp.Package, name) {
+	if !strings.EqualFold(resp.Package, name) {
 		return nil, fmt.Errorf("APM registry returned package %q for %q", resp.Package, name)
 	}
 

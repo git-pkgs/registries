@@ -197,7 +197,7 @@ import _ "github.com/git-pkgs/registries/all"
 | Swift | `swift` | URL required |
 | Alpine | `apk` | URL required |
 | GitHub Actions | `githubactions` | https://api.github.com |
-| APM | `apm` | URL required |
+| APM | None | URL required |
 
 The Alpine URL is one repository architecture directory, such as `https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64`, or the `APKINDEX.tar.gz` inside it. The client doesn't pick a release, component or architecture from a mirror root. It reads v2 `APKINDEX.tar.gz` indexes. When a directory serves a v3 `Packages.adb`, the client returns an error rather than reading the v2 index.
 

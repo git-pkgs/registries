@@ -112,12 +112,17 @@ func TestAPMRegistryURLsAndIdentity(t *testing.T) {
 	if _, err := registries.New("apm", "", nil); err == nil {
 		t.Fatal("missing registry URL accepted")
 	}
-	bad, err := registries.New("apm", "https://user@registry.example.com", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := bad.FetchVersions(context.Background(), "acme/web-skills"); err == nil || !strings.Contains(err.Error(), "invalid APM registry URL") {
-		t.Errorf("registry URL with credentials: %v", err)
+	for _, raw := range []string{"https://user@registry.example.com", "https://registry.example.com/api?", "https://registry.example.com/api#"} {
+		bad, err := registries.New("apm", raw, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := bad.FetchVersions(context.Background(), "acme/web-skills"); err == nil || !strings.Contains(err.Error(), "invalid APM registry URL") {
+			t.Errorf("registry URL %q: %v", raw, err)
+		}
+		if got := bad.URLs().Registry("acme/web-skills", ""); got != "" {
+			t.Errorf("Registry for %q = %q", raw, got)
+		}
 	}
 }
 
@@ -127,13 +132,14 @@ func TestAPMRegistryMalformed(t *testing.T) {
 		"not JSON":          `<html>`,
 		"missing versions":  `{"package":"acme/web-skills"}`,
 		"other package":     `{"package":"acme/other","versions":[]}`,
-		"missing version":   `{"versions":[{` + valid + `}]}`,
-		"missing digest":    `{"versions":[{"version":"1.0.0","published_at":"2026-01-02T03:04:05Z"}]}`,
-		"bare digest":       `{"versions":[{"version":"1.0.0","digest":"` + apmDigestNew + `","published_at":"2026-01-02T03:04:05Z"}]}`,
-		"uppercase digest":  `{"versions":[{"version":"1.0.0","digest":"sha256:` + strings.ToUpper(apmDigestNew) + `","published_at":"2026-01-02T03:04:05Z"}]}`,
-		"camelCase time":    `{"versions":[{"version":"1.0.0","digest":"sha256:` + apmDigestNew + `","publishedAt":"2026-01-02T03:04:05Z"}]}`,
-		"invalid time":      `{"versions":[{"version":"1.0.0","digest":"sha256:` + apmDigestNew + `","published_at":"yesterday"}]}`,
-		"duplicate version": `{"versions":[{"version":"1.0.0",` + valid + `},{"version":"1.0.0",` + valid + `}]}`,
+		"missing package":   `{"versions":[]}`,
+		"missing version":   `{"package":"acme/web-skills","versions":[{` + valid + `}]}`,
+		"missing digest":    `{"package":"acme/web-skills","versions":[{"version":"1.0.0","published_at":"2026-01-02T03:04:05Z"}]}`,
+		"bare digest":       `{"package":"acme/web-skills","versions":[{"version":"1.0.0","digest":"` + apmDigestNew + `","published_at":"2026-01-02T03:04:05Z"}]}`,
+		"uppercase digest":  `{"package":"acme/web-skills","versions":[{"version":"1.0.0","digest":"sha256:` + strings.ToUpper(apmDigestNew) + `","published_at":"2026-01-02T03:04:05Z"}]}`,
+		"camelCase time":    `{"package":"acme/web-skills","versions":[{"version":"1.0.0","digest":"sha256:` + apmDigestNew + `","publishedAt":"2026-01-02T03:04:05Z"}]}`,
+		"invalid time":      `{"package":"acme/web-skills","versions":[{"version":"1.0.0","digest":"sha256:` + apmDigestNew + `","published_at":"yesterday"}]}`,
+		"duplicate version": `{"package":"acme/web-skills","versions":[{"version":"1.0.0",` + valid + `},{"version":"1.0.0",` + valid + `}]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			reg, _ := newAPMRegistry(t, func(w http.ResponseWriter, _ *http.Request) {
