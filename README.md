@@ -1,6 +1,6 @@
 # registries
 
-Go library for fetching package metadata from registry APIs. Supports 29 ecosystems with a unified interface. Also provides sub-packages for HTTP client usage (`client/`), streaming artifact downloads (`fetch/`) and registry change feeds (`changes/`).
+Go library for fetching package metadata from registry APIs. Supports 30 ecosystems with a unified interface. Also provides sub-packages for HTTP client usage (`client/`), streaming artifact downloads (`fetch/`) and registry change feeds (`changes/`).
 
 ## Installation
 
@@ -197,6 +197,7 @@ import _ "github.com/git-pkgs/registries/all"
 | Swift | `swift` | URL required |
 | Alpine | `apk` | URL required |
 | GitHub Actions | `githubactions` | https://api.github.com |
+| APM | `apm` | URL required |
 
 The Alpine URL is one repository architecture directory, such as `https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64`, or the `APKINDEX.tar.gz` inside it. The client doesn't pick a release, component or architecture from a mirror root. It reads v2 `APKINDEX.tar.gz` indexes. When a directory serves a v3 `Packages.adb`, the client returns an error rather than reading the v2 index.
 
@@ -241,6 +242,32 @@ metadata but are not verified.
 manifests rather than structured dependency data, and has no maintainer endpoint.
 The adapter does not execute Swift or download archives. Authentication can be
 provided through the shared client's HTTP transport.
+
+### APM registries
+
+[APM](https://github.com/microsoft/apm) registry lookups use its experimental
+registry API and require an explicit registry URL. Package IDs are `owner/repo`:
+
+```go
+reg, err := registries.New("apm", "https://registry.example.com/api/apm", nil)
+// Handle err before using reg.
+versions, err := reg.FetchVersions(ctx, "acme/web-skills")
+```
+
+`FetchVersions` reads `GET /v1/packages/{owner}/{repo}/versions` and returns
+versions newest first by `published_at`. Each version's `digest` becomes its
+`Integrity`, and its single artifact points at
+`/v1/packages/{owner}/{repo}/versions/{version}/download`. Malformed digests,
+timestamps or duplicate versions return an error. In a longer ID such as
+`group/subgroup/repo`, every segment before the last forms the owner, which is
+sent as one percent-encoded segment as APM's client does.
+
+`FetchPackage` reports the name, the owner as `Namespace` and the newest version.
+An `owner/repo` ID does not establish a GitHub source, so `Repository` stays
+empty and `URLs().PURL` returns an empty string. `FetchDependencies` and
+`FetchMaintainers` return errors wrapping `errors.ErrUnsupported`. MCP server
+discovery uses a separate API and is not covered. Authentication can be provided
+through the shared client's HTTP transport.
 
 ## Types
 
