@@ -10,7 +10,7 @@ require (
 	github.com/git-pkgs/artifacts v0.2.1
 	github.com/git-pkgs/pom v0.1.9
 	github.com/git-pkgs/purl v0.2.1
-	github.com/git-pkgs/spdx v0.3.3
+	github.com/git-pkgs/spdx v0.3.6
 	github.com/git-pkgs/vers v0.7.2
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/rs/dnscache v0.0.0-20230804202142-fc85eb664529
@@ -19,7 +19,7 @@ require (
 )
 
 require (
-	github.com/github/go-spdx/v2 v2.7.0 // indirect
+	github.com/github/go-spdx/v2 v2.8.0 // indirect
 	github.com/package-url/packageurl-go v0.1.7 // indirect
 	github.com/peterbourgon/g2s v0.0.0-20170223122336-d4e7ad98afea // indirect
 	golang.org/x/sync v0.20.0 // indirect
