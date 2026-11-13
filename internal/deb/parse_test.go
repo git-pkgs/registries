@@ -82,6 +82,35 @@ func TestParseRelease(t *testing.T) {
 	}
 }
 
+// A clearsigned file may use CRLF line endings.
+func TestParseReleaseCRLF(t *testing.T) {
+	data := "-----BEGIN PGP SIGNED MESSAGE-----\r\nHash: SHA256\r\n\r\n" +
+		"Codename: bookworm\r\nSHA256:\r\n abcd 12 main/binary-amd64/Packages.xz\r\n" +
+		"-----BEGIN PGP SIGNATURE-----\r\n\r\niQIz\r\n-----END PGP SIGNATURE-----\r\n" +
+		"Codename: unsigned\r\n"
+	rel, err := parseRelease([]byte(data))
+	if err != nil {
+		t.Fatalf("parseRelease: %v", err)
+	}
+	want := map[string]fileSum{"main/binary-amd64/Packages.xz": {sha256: "abcd", size: 12}}
+	if rel.codename != "bookworm" || !reflect.DeepEqual(rel.files, want) {
+		t.Errorf("release = %+v", rel)
+	}
+}
+
+// A clearsigned file without its header separator or signature is not
+// read as an empty Release, which would leave the indexes unchecked.
+func TestParseReleaseBrokenEnvelope(t *testing.T) {
+	for name, data := range map[string]string{
+		"no blank line": "-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA256\nCodename: bookworm\n",
+		"no signature":  "-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA256\n\nCodename: bookworm\n",
+	} {
+		if _, err := parseRelease([]byte(data)); !errors.Is(err, ErrMalformedIndex) {
+			t.Errorf("%s: err = %v, want ErrMalformedIndex", name, err)
+		}
+	}
+}
+
 func TestParseReleaseMalformedEntry(t *testing.T) {
 	for _, entry := range []string{" abcd notasize main/binary-amd64/Packages", " abcd 12 main/binary-amd64/Packages extra", " abcd 12"} {
 		if _, err := parseRelease([]byte("SHA256:\n" + entry + "\n")); !errors.Is(err, ErrMalformedIndex) {
@@ -104,10 +133,12 @@ func TestDistroFromCodename(t *testing.T) {
 }
 
 func TestParseDependencies(t *testing.T) {
-	got := parseDependencies("libc6 (>= 2.34)", "adduser, libssl3 (>= 3.0.13) | libssl3t64, zlib1g:any (>=1:1.1.4), libselinux1 [linux-any], libfoo <!nocheck>, ")
+	got := parseDependencies("libc6 (>= 2.34)", "adduser, libssl3 (>= 3.0.13) | libssl3t64, zlib1g:any (>=1:1.1.4), libselinux1 [linux-any], libfoo <!nocheck>, "+
+		"libold (<< 2.0), libnew (>> 1.0) [amd64] <!stage1>, libexact (= 1:2-3)<cross>, libbare[i386], libfirst | libsecond (>= 1)")
 	want := []dependency{
 		{"libc6", ">= 2.34"}, {"adduser", ""}, {"libssl3", ">= 3.0.13"},
 		{"zlib1g", ">=1:1.1.4"}, {"libselinux1", ""}, {"libfoo", ""},
+		{"libold", "<< 2.0"}, {"libnew", ">> 1.0"}, {"libexact", "= 1:2-3"}, {"libbare", ""}, {"libfirst", ""},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("parseDependencies =\n %+v\nwant\n %+v", got, want)
