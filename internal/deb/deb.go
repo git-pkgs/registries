@@ -3,7 +3,6 @@
 package deb
 
 import (
-	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -20,8 +19,8 @@ import (
 
 	"github.com/git-pkgs/purl"
 	"github.com/git-pkgs/registries/internal/core"
+	"github.com/git-pkgs/registries/internal/xzlimit"
 	"github.com/git-pkgs/vers"
-	"github.com/ulikunitz/xz"
 )
 
 const (
@@ -31,11 +30,7 @@ const (
 	// maxIndexSize bounds one decompressed Packages index. noble universe
 	// amd64 is about 73 MB.
 	maxIndexSize = 512 << 20
-	// maxXZSize bounds a Packages.xz, which is read whole so its blocks can
-	// be checked before decoding. sid main amd64 is about 11 MB.
-	maxXZSize = 128 << 20
-
-	archAll = "all"
+	archAll      = "all"
 )
 
 var (
@@ -83,7 +78,6 @@ type Registry struct {
 	urls          *URLs
 
 	maxIndexSize int64
-	maxXZSize    int64
 
 	mu       sync.Mutex
 	packages map[string][]record
@@ -93,7 +87,7 @@ func New(baseURL string, client *core.Client) *Registry {
 	if client == nil {
 		client = core.DefaultClient()
 	}
-	r := &Registry{client: client, maxIndexSize: maxIndexSize, maxXZSize: maxXZSize}
+	r := &Registry{client: client, maxIndexSize: maxIndexSize}
 	r.configErr = r.configure(baseURL)
 	r.urls = &URLs{repositoryURL: r.repositoryURL()}
 	return r
@@ -329,25 +323,8 @@ func (r *Registry) parseIndex(body io.Reader, variant, indexURL string, sum *fil
 	var decoded io.Reader
 	switch variant {
 	case "Packages.xz":
-		data, err := io.ReadAll(io.LimitReader(counted, r.maxXZSize+1))
-		if err != nil {
-			return nil, err
-		}
-		if int64(len(data)) > r.maxXZSize {
-			return nil, fmt.Errorf("%w: %s is larger than %d bytes", ErrMalformedIndex, indexURL, r.maxXZSize)
-		}
-		// Checked before decoding, so a bad file never reaches the decoder.
-		if err := checkSum(hasher, counted.n, sum, indexURL); err != nil {
-			return nil, err
-		}
-		if err := checkXZ(data, maxXZDict); err != nil {
-			return nil, err
-		}
-		xr, err := xz.NewReader(bytes.NewReader(data))
-		if err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrMalformedIndex, err)
-		}
-		decoded = xr
+		// Bounded as it decodes: a block asking for more is an error.
+		decoded = xzlimit.NewReader(counted, xzlimit.MaxDict)
 	case "Packages.gz":
 		gz, err := gzip.NewReader(counted)
 		if err != nil {
@@ -367,11 +344,9 @@ func (r *Registry) parseIndex(body io.Reader, variant, indexURL string, sum *fil
 	if limited.N == 0 {
 		return nil, fmt.Errorf("%w: %s decompresses to more than %d bytes", ErrMalformedIndex, indexURL, r.maxIndexSize)
 	}
-	// The gzip reader and the parser read to the end of the body.
-	if variant != "Packages.xz" {
-		if err := checkSum(hasher, counted.n, sum, indexURL); err != nil {
-			return nil, err
-		}
+	// The decoders and the parser read to the end of the body.
+	if err := checkSum(hasher, counted.n, sum, indexURL); err != nil {
+		return nil, err
 	}
 	return recs, nil
 }
