@@ -135,6 +135,7 @@ packages = registries.BulkFetchPackagesWithConcurrency(ctx, purls, nil, 5)
 | RubyGems | `pkg:gem/rails@7.1.0` |
 | Terraform | `pkg:terraform/hashicorp/consul/aws@0.11.0` |
 | GitHub Actions | `pkg:githubactions/actions/checkout@v4` |
+| VS Code extension | `pkg:vscode-extension/redhat/vscode-yaml@1.15.0` |
 | Alpine | `pkg:apk/alpine/curl@8.22.0-r0?arch=x86_64&repository_url=https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64` |
 
 ## Direct Registry Usage
@@ -197,11 +198,14 @@ import _ "github.com/git-pkgs/registries/all"
 | Swift | `swift` | URL required |
 | Alpine | `apk` | URL required |
 | GitHub Actions | `githubactions` | https://api.github.com |
+| VS Code extension | `vscode-extension` | https://open-vsx.org |
 | APM | None | URL required |
 
 The Alpine URL is one repository architecture directory, such as `https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64`, or the `APKINDEX.tar.gz` inside it. The client doesn't pick a release, component or architecture from a mirror root. It reads v2 `APKINDEX.tar.gz` indexes. When a directory serves a v3 `Packages.adb`, the client returns an error rather than reading the v2 index.
 
 GitHub Actions are git repositories, so `FetchPackage` reads `/repos/{owner}/{repo}` and `FetchVersions` lists tags from the GitHub REST API. Unauthenticated requests are limited to 60 per hour. A subdirectory action such as `pkg:githubactions/github/codeql-action/init@v3` resolves to the `github/codeql-action` repository. `URLs().Download` returns the `/archive/{ref}.tar.gz` source tarball for any tag, branch or commit SHA. GitHub doesn't guarantee these tarballs are byte-stable, so versions carry no `Integrity`. Dependencies and maintainers return an error wrapping `errors.ErrUnsupported`. For GitHub Enterprise Server, pass the `/api/v3` API root as the base URL.
+
+VS Code extensions are read from [Open VSX](https://open-vsx.org), or from a self-hosted Open VSX server given as the base URL. The purl spec makes the Visual Studio Marketplace the default for `vscode-extension`, but the client has no Marketplace support, so a PURL without `repository_url` also resolves to Open VSX. `URLs().PURL` always adds the registry as `repository_url`. Names are `publisher/name` or VS Code's `publisher.name`. An extension can publish a separate build for each target platform, such as `linux-x64` or `darwin-arm64`. Each version from `FetchVersions` and `FetchVersion` carries one artifact per build, with `target_platform`, `signature` (the `.sigzip`) and `sha256` (the URL of the checksum file) in its metadata. `URLs().Download` returns the universal build, which a version built only for specific platforms doesn't have. `FetchDependencies` lists both the extensions a version depends on and the ones it bundles as an extension pack. `FetchMaintainers` returns the user who published the latest version.
 
 ### Swift registries
 
