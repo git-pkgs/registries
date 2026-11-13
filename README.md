@@ -133,7 +133,7 @@ packages = registries.BulkFetchPackagesWithConcurrency(ctx, purls, nil, 5)
 | Go | `pkg:golang/github.com/gorilla/mux@v1.8.0` |
 | Maven | `pkg:maven/org.apache.commons/commons-lang3@3.12.0` |
 | RubyGems | `pkg:gem/rails@7.1.0` |
-| Terraform | `pkg:terraform/hashicorp/consul/aws@0.11.0` |
+| Terraform | `pkg:terraform/hashicorp/consul/aws@0.11.0` (module), `pkg:terraform/hashicorp/random@3.6.0` (provider) |
 | GitHub Actions | `pkg:githubactions/actions/checkout@v4` |
 | Alpine | `pkg:apk/alpine/curl@8.22.0-r0?arch=x86_64&repository_url=https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64` |
 
