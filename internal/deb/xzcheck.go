@@ -3,6 +3,7 @@ package deb
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 )
 
@@ -21,28 +22,40 @@ const (
 var (
 	xzHeaderMagic = []byte{0xFD, '7', 'z', 'X', 'Z', 0x00}
 	xzFooterMagic = []byte{'Y', 'Z'}
+
+	errXZTruncated = errors.New("file ends early")
+
+	// xzCheckSizes is the size of the check after each block, by the check
+	// type in the stream flags.
+	xzCheckSizes = [16]int{0, 4, 4, 4, 8, 8, 8, 16, 16, 16, 32, 32, 32, 64, 64, 64}
 )
 
 // checkXZ checks every block of every stream in an .xz file for an LZMA2
-// dictionary larger than maxDict, before the file is decoded. Streams are
-// found from the end, through each stream's footer and index, so blocks
-// need not be decoded to be found.
+// dictionary larger than maxDict, before the file is decoded.
+//
+// It reads the file front to back as the decoder does: each block header,
+// then the LZMA2 chunks of the block, whose headers give their sizes, to
+// where the next block header starts. The index at the end of a stream
+// also lists the blocks, but the decoder reads a block header and
+// allocates its dictionary before it compares the blocks with the index,
+// so an index that leaves a block out would hide it from a check that
+// trusted it.
 func checkXZ(data []byte, maxDict uint64) error {
-	end := len(data)
-	streams := 0
-	for {
-		// Stream padding is a multiple of four zero bytes.
-		for end >= 4 && bytes.Equal(data[end-4:end], []byte{0, 0, 0, 0}) {
-			end -= 4
+	pos, streams := 0, 0
+	for pos < len(data) {
+		if streams > 0 && data[pos] == 0 {
+			// Stream padding comes in multiples of four zero bytes.
+			if len(data)-pos < 4 || !bytes.Equal(data[pos:pos+4], []byte{0, 0, 0, 0}) {
+				return fmt.Errorf("%w: xz: bad stream padding", ErrMalformedIndex)
+			}
+			pos += 4
+			continue
 		}
-		if end == 0 {
-			break
-		}
-		start, err := checkXZStream(data[:end], maxDict)
+		next, err := checkXZStream(data, pos, maxDict)
 		if err != nil {
 			return fmt.Errorf("%w: xz: %w", ErrMalformedIndex, err)
 		}
-		end = start
+		pos = next
 		streams++
 	}
 	if streams == 0 {
@@ -51,122 +64,158 @@ func checkXZ(data []byte, maxDict uint64) error {
 	return nil
 }
 
-// checkXZStream checks the stream that ends data and returns its offset.
-func checkXZStream(data []byte, maxDict uint64) (int, error) {
-	if len(data) < xzHeaderSize+xzFooterSize {
-		return 0, fmt.Errorf("stream too short")
+// checkXZStream checks the stream that starts at pos and returns where it
+// ends.
+func checkXZStream(data []byte, pos int, maxDict uint64) (int, error) {
+	if len(data)-pos < xzHeaderSize {
+		return 0, errXZTruncated
 	}
-	footer := data[len(data)-xzFooterSize:]
-	if !bytes.Equal(footer[10:], xzFooterMagic) {
-		return 0, fmt.Errorf("no stream footer")
+	header := data[pos : pos+xzHeaderSize]
+	if !bytes.Equal(header[:len(xzHeaderMagic)], xzHeaderMagic) {
+		return 0, errors.New("no stream header")
 	}
-	indexSize := (int(binary.LittleEndian.Uint32(footer[4:8])) + 1) * 4
-	indexStart := len(data) - xzFooterSize - indexSize
-	if indexStart < 0 {
-		return 0, fmt.Errorf("index outside the stream")
+	checkSize := xzCheckSizes[header[7]&0x0F]
+	pos += xzHeaderSize
+
+	for {
+		if pos >= len(data) {
+			return 0, errXZTruncated
+		}
+		if data[pos] == 0 {
+			break // the index indicator: no more blocks
+		}
+		next, err := checkXZBlock(data, pos, checkSize, maxDict)
+		if err != nil {
+			return 0, err
+		}
+		pos = next
 	}
-	blocks, err := xzIndexBlocks(data[indexStart:len(data)-xzFooterSize], indexStart)
+
+	pos, err := skipXZIndex(data, pos)
 	if err != nil {
 		return 0, err
 	}
-	total := 0
-	for _, size := range blocks {
-		total += size
+	if len(data)-pos < xzFooterSize {
+		return 0, errXZTruncated
 	}
-	start := indexStart - total - xzHeaderSize
-	if start < 0 || !bytes.Equal(data[start:start+len(xzHeaderMagic)], xzHeaderMagic) {
-		return 0, fmt.Errorf("no stream header")
+	if !bytes.Equal(data[pos+10:pos+xzFooterSize], xzFooterMagic) {
+		return 0, errors.New("no stream footer")
 	}
-	offset := start + xzHeaderSize
-	for _, size := range blocks {
-		if err := checkXZBlockHeader(data[offset:offset+size], maxDict); err != nil {
-			return 0, err
-		}
-		offset += size
-	}
-	return start, nil
+	return pos + xzFooterSize, nil
 }
 
-// xzIndexBlocks reads an xz index and returns the space each block takes,
-// its unpadded size rounded up to four bytes. No block is larger than
-// limit, the bytes before the index.
-func xzIndexBlocks(index []byte, limit int) ([]int, error) {
-	if len(index) == 0 || index[0] != 0 {
-		return nil, fmt.Errorf("no index")
+// checkXZBlock checks the header of the block that starts at pos and
+// returns where the block ends: after its LZMA2 chunks, padding and check.
+func checkXZBlock(data []byte, pos, checkSize int, maxDict uint64) (int, error) {
+	start := pos
+	headerSize := (int(data[pos]) + 1) * 4
+	if len(data)-pos < headerSize {
+		return 0, errXZTruncated
 	}
-	pos := 1
-	count, n := readVarint(index[pos:])
-	if n == 0 {
-		return nil, fmt.Errorf("bad index")
+	if err := checkXZBlockHeader(data[pos:pos+headerSize], maxDict); err != nil {
+		return 0, err
 	}
+	pos += headerSize
+
+	// LZMA2 is the last filter of every block, so the block's data is a
+	// run of LZMA2 chunks up to an end marker.
+	for {
+		if pos >= len(data) {
+			return 0, errXZTruncated
+		}
+		control := data[pos]
+		if control == 0 {
+			pos++
+			break
+		}
+		var chunk int
+		switch {
+		case control == 1 || control == 2: // stored: control, size
+			if len(data)-pos < 3 {
+				return 0, errXZTruncated
+			}
+			chunk = 3 + int(binary.BigEndian.Uint16(data[pos+1:])) + 1
+		case control >= 0x80: // LZMA: control, sizes, properties on a reset
+			if len(data)-pos < 5 {
+				return 0, errXZTruncated
+			}
+			chunk = 5 + int(binary.BigEndian.Uint16(data[pos+3:])) + 1
+			if control >= 0xC0 {
+				chunk++
+			}
+		default:
+			return 0, errors.New("bad LZMA2 chunk")
+		}
+		// A chunk running past the end is caught by the next read.
+		pos += chunk
+	}
+
+	// The block is padded to four bytes, then comes its check.
+	return pos + (4-(pos-start)%4)%4 + checkSize, nil
+}
+
+// skipXZIndex returns where the index that starts at pos ends.
+func skipXZIndex(data []byte, pos int) (int, error) {
+	start := pos
+	pos++ // the indicator
+	// A malformed count reads as no records, which the footer then fails.
+	count, n := readVarint(data[pos:])
 	pos += n
-	// Each record is at least two bytes, which bounds count.
-	if count > uint64(len(index)) {
-		return nil, fmt.Errorf("bad index")
-	}
-	blocks := make([]int, 0, count)
-	for range count {
-		unpadded, n := readVarint(index[pos:])
-		// Bounded so the sizes below cannot overflow int.
-		if n == 0 || unpadded > uint64(limit) {
-			return nil, fmt.Errorf("bad index record")
+	for ; count > 0; count-- {
+		for range 2 { // unpadded and uncompressed size
+			_, n := readVarint(data[pos:])
+			if n == 0 {
+				return 0, errors.New("bad index record")
+			}
+			pos += n
 		}
-		pos += n
-		if _, n = readVarint(index[pos:]); n == 0 {
-			return nil, fmt.Errorf("bad index record")
-		}
-		pos += n
-		blocks = append(blocks, int((unpadded+3)&^3))
 	}
-	return blocks, nil
+	// Padding to four bytes, then the CRC32.
+	return pos + (4-(pos-start)%4)%4 + 4, nil
 }
 
-// checkXZBlockHeader reads the filters of the block that starts block.
+// checkXZBlockHeader reads the filters of a block header.
 func checkXZBlockHeader(block []byte, maxDict uint64) error {
-	if len(block) == 0 || block[0] == 0 {
-		return fmt.Errorf("no block header")
-	}
-	size := (int(block[0]) + 1) * 4
-	if size > len(block) {
-		return fmt.Errorf("block header past the block")
-	}
-	header := block[1 : size-4] // without the size byte and the CRC32
-	if len(header) == 0 {
-		return fmt.Errorf("short block header")
-	}
+	// Without the size byte and the CRC32; a header is at least 8 bytes.
+	header := block[1 : len(block)-4]
 	flags := header[0]
 	pos := 1
 	for _, present := range []byte{0x40, 0x80} { // compressed and uncompressed sizes
 		if flags&present != 0 {
 			_, n := readVarint(header[pos:])
 			if n == 0 {
-				return fmt.Errorf("bad block header")
+				return errors.New("bad block header")
 			}
 			pos += n
 		}
 	}
+	last := uint64(0)
 	for range int(flags&0x03) + 1 {
 		id, n := readVarint(header[pos:])
 		if n == 0 {
-			return fmt.Errorf("bad filter flags")
+			return errors.New("bad filter flags")
 		}
 		pos += n
 		propsSize, n := readVarint(header[pos:])
 		if n == 0 || uint64(len(header)-pos-n) < propsSize {
-			return fmt.Errorf("bad filter flags")
+			return errors.New("bad filter flags")
 		}
 		pos += n
 		props := header[pos : pos+int(propsSize)]
 		pos += int(propsSize)
+		last = id
 		if id != lzma2Filter {
 			continue
 		}
 		if len(props) != 1 || props[0] > 40 {
-			return fmt.Errorf("bad LZMA2 properties")
+			return errors.New("bad LZMA2 properties")
 		}
 		if dict := lzma2DictSize(props[0]); dict > maxDict {
 			return fmt.Errorf("LZMA2 dictionary of %d bytes is larger than %d", dict, maxDict)
 		}
+	}
+	if last != lzma2Filter {
+		return errors.New("last filter is not LZMA2")
 	}
 	return nil
 }

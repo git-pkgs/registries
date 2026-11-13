@@ -5,9 +5,13 @@ import (
 	"encoding/binary"
 	"errors"
 	"hash/crc32"
+	"io"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/ulikunitz/xz"
 )
 
 func TestParseStanzas(t *testing.T) {
@@ -82,6 +86,35 @@ func TestParseRelease(t *testing.T) {
 	}
 }
 
+// A clearsigned file may use CRLF line endings.
+func TestParseReleaseCRLF(t *testing.T) {
+	data := "-----BEGIN PGP SIGNED MESSAGE-----\r\nHash: SHA256\r\n\r\n" +
+		"Codename: bookworm\r\nSHA256:\r\n abcd 12 main/binary-amd64/Packages.xz\r\n" +
+		"-----BEGIN PGP SIGNATURE-----\r\n\r\niQIz\r\n-----END PGP SIGNATURE-----\r\n" +
+		"Codename: unsigned\r\n"
+	rel, err := parseRelease([]byte(data))
+	if err != nil {
+		t.Fatalf("parseRelease: %v", err)
+	}
+	want := map[string]fileSum{"main/binary-amd64/Packages.xz": {sha256: "abcd", size: 12}}
+	if rel.codename != "bookworm" || !reflect.DeepEqual(rel.files, want) {
+		t.Errorf("release = %+v", rel)
+	}
+}
+
+// A clearsigned file without its header separator or signature is not
+// read as an empty Release, which would leave the indexes unchecked.
+func TestParseReleaseBrokenEnvelope(t *testing.T) {
+	for name, data := range map[string]string{
+		"no blank line": "-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA256\nCodename: bookworm\n",
+		"no signature":  "-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA256\n\nCodename: bookworm\n",
+	} {
+		if _, err := parseRelease([]byte(data)); !errors.Is(err, ErrMalformedIndex) {
+			t.Errorf("%s: err = %v, want ErrMalformedIndex", name, err)
+		}
+	}
+}
+
 func TestParseReleaseMalformedEntry(t *testing.T) {
 	for _, entry := range []string{" abcd notasize main/binary-amd64/Packages", " abcd 12 main/binary-amd64/Packages extra", " abcd 12"} {
 		if _, err := parseRelease([]byte("SHA256:\n" + entry + "\n")); !errors.Is(err, ErrMalformedIndex) {
@@ -104,10 +137,12 @@ func TestDistroFromCodename(t *testing.T) {
 }
 
 func TestParseDependencies(t *testing.T) {
-	got := parseDependencies("libc6 (>= 2.34)", "adduser, libssl3 (>= 3.0.13) | libssl3t64, zlib1g:any (>=1:1.1.4), libselinux1 [linux-any], libfoo <!nocheck>, ")
+	got := parseDependencies("libc6 (>= 2.34)", "adduser, libssl3 (>= 3.0.13) | libssl3t64, zlib1g:any (>=1:1.1.4), libselinux1 [linux-any], libfoo <!nocheck>, "+
+		"libold (<< 2.0), libnew (>> 1.0) [amd64] <!stage1>, libexact (= 1:2-3)<cross>, libbare[i386], libfirst | libsecond (>= 1)")
 	want := []dependency{
 		{"libc6", ">= 2.34"}, {"adduser", ""}, {"libssl3", ">= 3.0.13"},
 		{"zlib1g", ">=1:1.1.4"}, {"libselinux1", ""}, {"libfoo", ""},
+		{"libold", "<< 2.0"}, {"libnew", ">> 1.0"}, {"libexact", "= 1:2-3"}, {"libbare", ""}, {"libfirst", ""},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("parseDependencies =\n %+v\nwant\n %+v", got, want)
@@ -204,7 +239,7 @@ func xzBlockHeader(flags byte, body ...[]byte) []byte {
 	for _, b := range body {
 		h = append(h, b...)
 	}
-	for (len(h)+4)%4 != 0 {
+	for len(h)%4 != 0 {
 		h = append(h, 0)
 	}
 	h = append(h, 0, 0, 0, 0)
@@ -214,16 +249,41 @@ func xzBlockHeader(flags byte, body ...[]byte) []byte {
 
 func lzma2Props(bits byte) []byte { return []byte{lzma2Filter, 0x01, bits} }
 
-// xzStream builds one stream whose blocks hold only their headers. Nothing
-// here is meant to decode; checkXZ reads only the container.
-func xzStream(headers ...[]byte) []byte {
-	out := append(bytes.Clone(xzHeaderMagic), 0, 1, 0, 0, 0, 0)
-	index := []byte{0}
-	index = append(index, xzVarint(uint64(len(headers)))...)
-	for _, h := range headers {
-		out = append(out, h...)
-		index = append(index, xzVarint(uint64(len(h)))...)
-		index = append(index, xzVarint(1)...)
+// xzBlock is a block header and the LZMA2 chunks after it, without the end
+// marker. Nothing here is meant to decode; checkXZ reads only the layout.
+type xzBlock struct {
+	header []byte
+	chunks []byte
+}
+
+// xzFile describes a stream to build.
+type xzFile struct {
+	blocks    []xzBlock
+	checkType byte // 1 is CRC32, four bytes after each block
+	// records is how many blocks the index lists; -1 lists them all.
+	records int
+}
+
+func (f xzFile) bytes() []byte {
+	checkSize := xzCheckSizes[f.checkType]
+	out := append(bytes.Clone(xzHeaderMagic), 0, f.checkType, 0, 0, 0, 0)
+	records := f.records
+	if records < 0 {
+		records = len(f.blocks)
+	}
+	index := append([]byte{0}, xzVarint(uint64(records))...)
+	for i, b := range f.blocks {
+		block := append(bytes.Clone(b.header), b.chunks...)
+		block = append(block, 0) // the LZMA2 end marker
+		if i < records {
+			index = append(index, xzVarint(uint64(len(block)+checkSize))...)
+			index = append(index, xzVarint(1)...)
+		}
+		for len(block)%4 != 0 {
+			block = append(block, 0)
+		}
+		out = append(out, block...)
+		out = append(out, make([]byte, checkSize)...)
 	}
 	for len(index)%4 != 0 {
 		index = append(index, 0)
@@ -236,12 +296,54 @@ func xzStream(headers ...[]byte) []byte {
 	return append(out, footer...)
 }
 
+// xzStream builds a stream of blocks with these headers, a CRC32 check and
+// an index listing them all.
+func xzStream(headers ...[]byte) []byte {
+	f := xzFile{checkType: 1, records: -1}
+	for _, h := range headers {
+		f.blocks = append(f.blocks, xzBlock{header: h})
+	}
+	return f.bytes()
+}
+
 func TestCheckXZContainer(t *testing.T) {
-	small := lzma2Props(22)
-	large := lzma2Props(38)
-	valid := xzStream(xzBlockHeader(0x00, small))
-	if err := checkXZ(valid, maxXZDict); err != nil {
-		t.Fatalf("valid synthetic stream: %v", err)
+	small := xzBlockHeader(0x00, lzma2Props(22))
+	large := xzBlockHeader(0x00, lzma2Props(38))
+	valid := xzStream(small)
+
+	// Chunks as LZMA2 frames them: stored (control, size-1, data) and LZMA
+	// (control, uncompressed size-1, compressed size-1, properties on a
+	// reset, data). Their data is filled with bytes that would read as a
+	// block header asking for a large dictionary, or as an end marker, if
+	// a chunk were walked by the wrong size.
+	filler := func(n int) []byte { return bytes.Repeat(append([]byte{0}, large...), n)[:n] }
+	stored := append([]byte{0x01, 0x00, 0x1F}, filler(0x20)...)
+	storedNoReset := append([]byte{0x02, 0x01, 0x0F}, filler(0x110)...)
+	lzmaChunk := append([]byte{0x80, 0xFF, 0xFF, 0x00, 0x2F}, filler(0x30)...)
+	lzmaWithProps := append([]byte{0xE0, 0x00, 0x10, 0x01, 0x04, 0x5D}, filler(0x105)...)
+	concat := func(parts ...[]byte) []byte { return bytes.Join(parts, nil) }
+
+	for name, data := range map[string][]byte{
+		"one block":                  valid,
+		"two blocks":                 xzStream(small, small),
+		"no blocks":                  xzStream(),
+		"no check":                   xzFile{blocks: []xzBlock{{header: small}, {header: small}}, checkType: 0, records: -1}.bytes(),
+		"crc64 check":                xzFile{blocks: []xzBlock{{header: small}, {header: small}}, checkType: 4, records: -1}.bytes(),
+		"sha256 check":               xzFile{blocks: []xzBlock{{header: small}, {header: small}}, checkType: 10, records: -1}.bytes(),
+		"stored chunk":               xzFile{blocks: []xzBlock{{small, stored}, {header: small}}, checkType: 1, records: -1}.bytes(),
+		"stored without reset":       xzFile{blocks: []xzBlock{{small, storedNoReset}, {header: small}}, checkType: 1, records: -1}.bytes(),
+		"lzma chunk":                 xzFile{blocks: []xzBlock{{small, lzmaChunk}, {header: small}}, checkType: 1, records: -1}.bytes(),
+		"lzma chunk with properties": xzFile{blocks: []xzBlock{{small, lzmaWithProps}, {header: small}}, checkType: 1, records: -1}.bytes(),
+		"several chunks":             xzFile{blocks: []xzBlock{{small, concat(lzmaWithProps, stored, lzmaChunk, storedNoReset)}, {header: small}}, checkType: 1, records: -1}.bytes(),
+		"sizes then small":           xzStream(xzBlockHeader(0xC0, xzVarint(100), xzVarint(200), lzma2Props(22))),
+		"delta then small":           xzStream(xzBlockHeader(0x01, []byte{0x03, 0x01, 0x00}, lzma2Props(22))),
+		"padded streams":             concat(valid, make([]byte, 8), valid, make([]byte, 4)),
+	} {
+		t.Run("valid/"+name, func(t *testing.T) {
+			if err := checkXZ(data, maxXZDict); err != nil {
+				t.Errorf("err = %v, want none", err)
+			}
+		})
 	}
 
 	patch := func(data []byte, at int, b ...byte) []byte {
@@ -252,30 +354,36 @@ func TestCheckXZContainer(t *testing.T) {
 		copy(out[at:], b)
 		return out
 	}
-	indexStart := len(valid) - 12 - 8 // one record: indicator, count, two sizes, padding, CRC
 	tenByteOne := []byte{0x81, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00}
-
 	for name, data := range map[string][]byte{
-		"footer magic":         patch(valid, -2, 'Y', 'X'),
-		"header magic":         patch(valid, 0, 0xFE),
-		"index indicator":      patch(valid, indexStart, 1),
-		"index past the start": patch(valid, -8, 0xFF, 0xFF, 0xFF, 0x0F),
-		"huge record count":    xzStreamCount(t, valid, 1<<40),
-		"zero header size":     xzStream(append([]byte{0}, xzBlockHeader(0x00, small)[1:]...)),
-		"header past block":    xzStream(append([]byte{0x40}, xzBlockHeader(0x00, small)[1:]...)),
+		"footer magic":        patch(valid, -2, 'Y', 'X'),
+		"header magic":        patch(valid, 0, 0xFE),
+		"header past the end": xzStream(append([]byte{0xFF}, small[1:]...)),
+		// The index lists one block; the decoder reads both headers.
+		"block the index leaves out":     xzFile{blocks: []xzBlock{{header: small}, {header: large}}, checkType: 1, records: 1}.bytes(),
+		"index lists more than it holds": xzFile{blocks: []xzBlock{{header: small}}, checkType: 1, records: 1 << 40}.bytes(),
+		"large second block":             xzStream(small, large),
+		"large after a stored chunk":     xzFile{blocks: []xzBlock{{small, stored}, {header: large}}, checkType: 1, records: -1}.bytes(),
+		"large after an lzma chunk":      xzFile{blocks: []xzBlock{{small, lzmaWithProps}, {header: large}}, checkType: 1, records: -1}.bytes(),
+		"large in a second stream":       concat(valid, make([]byte, 4), xzStream(large)),
+		"bad chunk control":              xzFile{blocks: []xzBlock{{small, []byte{0x05, 0x00, 0x00}}}, checkType: 1, records: -1}.bytes(),
+		"chunk past the end":             xzFile{blocks: []xzBlock{{small, []byte{0x01, 0xFF, 0xFF}}}, checkType: 1, records: -1}.bytes(),
 		// Read as filter flags, these sizes would name a one-byte filter
 		// that isn't LZMA2 and hide the one after them.
-		"large after sizes": xzStream(xzBlockHeader(0xC0, xzVarint(3), xzVarint(1), large)),
-		// The same with each size on its own: past the size, the filter
-		// flags claim 33 bytes of properties, which aren't there.
-		"compressed size only":   xzStream(xzBlockHeader(0x40, xzVarint(3), []byte{0x01, 0x21})),
-		"uncompressed size only": xzStream(xzBlockHeader(0x80, xzVarint(3), []byte{0x01, 0x21})),
-		"large second filter":    xzStream(xzBlockHeader(0x01, []byte{0x03, 0x01, 0x00}, large)),
-		"properties past 40":     xzStream(xzBlockHeader(0x00, lzma2Props(200))),
-		"overlong varint":        xzStream(xzBlockHeader(0x00, []byte{lzma2Filter}, tenByteOne, []byte{22})),
-		"large second block":     xzStream(xzBlockHeader(0x00, small), xzBlockHeader(0x00, large)),
+		"large after sizes":         xzStream(xzBlockHeader(0xC0, xzVarint(3), xzVarint(1), lzma2Props(38))),
+		"compressed size only":      xzStream(xzBlockHeader(0x40, xzVarint(3), []byte{0x01, 0x21})),
+		"uncompressed size only":    xzStream(xzBlockHeader(0x80, xzVarint(3), []byte{0x01, 0x21})),
+		"large second filter":       xzStream(xzBlockHeader(0x01, []byte{0x03, 0x01, 0x00}, lzma2Props(38))),
+		"last filter not lzma2":     xzStream(xzBlockHeader(0x01, lzma2Props(22), []byte{0x03, 0x01, 0x00})),
+		"properties past 40":        xzStream(xzBlockHeader(0x00, lzma2Props(200))),
+		"overlong varint":           xzStream(xzBlockHeader(0x00, []byte{lzma2Filter}, tenByteOne, []byte{22})),
+		"padding of two bytes":      concat(valid, make([]byte, 2)),
+		"padding with a stray byte": concat(valid, []byte{0, 1, 0, 0}, valid),
+		"padding of six bytes":      concat(valid, make([]byte, 6), valid),
+		"garbage after a stream":    concat(valid, []byte("garbage!")),
+		"padding before a stream":   concat(make([]byte, 4), valid),
 	} {
-		t.Run(name, func(t *testing.T) {
+		t.Run("refused/"+name, func(t *testing.T) {
 			if err := checkXZ(data, maxXZDict); !errors.Is(err, ErrMalformedIndex) {
 				t.Errorf("err = %v, want ErrMalformedIndex", err)
 			}
@@ -283,13 +391,54 @@ func TestCheckXZContainer(t *testing.T) {
 	}
 }
 
-// xzStreamCount rewrites the record count of a one-block stream's index.
-func xzStreamCount(t *testing.T, stream []byte, count uint64) []byte {
-	t.Helper()
-	indexStart := len(stream) - 12 - 8
-	index := append([]byte{0}, xzVarint(count)...)
-	if len(index) > 8 {
-		t.Fatal("count too long for the index")
+// TestCheckXZRealFiles walks files real encoders wrote: Debian's own index,
+// and a multi-block file of compressible and incompressible data, which
+// holds both kinds of chunk. Every truncation of them is refused.
+func TestCheckXZRealFiles(t *testing.T) {
+	debian, err := os.ReadFile("testdata/bookworm-updates-Packages.xz")
+	if err != nil {
+		t.Fatal(err)
 	}
-	return append(append(bytes.Clone(stream[:indexStart]), append(index, make([]byte, 8-len(index))...)...), stream[len(stream)-12:]...)
+	noise := make([]byte, 200_000)
+	state := uint32(1)
+	for i := range noise {
+		state = state*1664525 + 1013904223
+		noise[i] = byte(state >> 24)
+	}
+	var buf bytes.Buffer
+	w, err := xz.WriterConfig{BlockSize: 64 << 10}.NewWriter(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, part := range [][]byte{[]byte(strings.Repeat(bookwormAMD64, 200)), noise, []byte(strings.Repeat("x", 300_000))} {
+		if _, err := w.Write(part); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, data := range map[string][]byte{"debian": debian, "multi-block": buf.Bytes()} {
+		if err := checkXZ(data, maxXZDict); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+		// The decoder agrees it is whole, so the walk covered every block.
+		r, err := xz.NewReader(bytes.NewReader(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.Copy(io.Discard, r); err != nil {
+			t.Fatalf("%s does not decode: %v", name, err)
+		}
+		step := 1
+		if len(data) > 20_000 {
+			step = 97
+		}
+		for n := 0; n < len(data); n += step {
+			if err := checkXZ(data[:n], maxXZDict); !errors.Is(err, ErrMalformedIndex) {
+				t.Fatalf("%s cut to %d bytes: err = %v, want ErrMalformedIndex", name, n, err)
+			}
+		}
+	}
 }
