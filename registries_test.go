@@ -20,7 +20,7 @@ import (
 func TestSupportedEcosystems(t *testing.T) {
 	ecosystems := registries.SupportedEcosystems()
 
-	expected := []string{"apk", "apm", "brew", "cargo", "clojars", "cocoapods", "composer", "conda", "cpan", "cran", "deno", "dub", "elm", "gem", "githubactions", "golang", "hackage", "haxelib", "helm", "hex", "julia", "luarocks", "maven", "nimble", "npm", "nuget", "pub", "pypi", "swift", "terraform"}
+	expected := []string{"apk", "apm", "brew", "cargo", "clojars", "cocoapods", "composer", "conda", "cpan", "cran", "deb", "deno", "dub", "elm", "gem", "githubactions", "golang", "hackage", "haxelib", "helm", "hex", "julia", "luarocks", "maven", "nimble", "npm", "nuget", "pub", "pypi", "rpm", "swift", "terraform"}
 	sort.Strings(ecosystems)
 
 	if len(ecosystems) != len(expected) {
@@ -69,6 +69,8 @@ func TestNew(t *testing.T) {
 		{"swift", true},
 		{"apm", true},
 		{"apk", true},
+		{"deb", true},
+		{"rpm", true},
 		{"unknown", true},
 	}
 
@@ -117,6 +119,8 @@ func TestDefaultURL(t *testing.T) {
 		{"swift", ""},
 		{"apm", ""},
 		{"apk", ""},
+		{"deb", ""},
+		{"rpm", ""},
 	}
 
 	for _, tt := range tests {
