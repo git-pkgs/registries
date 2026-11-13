@@ -3,7 +3,6 @@
 package rpm
 
 import (
-	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/sha1" //nolint:gosec // repomd.xml checksums of old repositories
@@ -24,10 +23,9 @@ import (
 
 	"github.com/git-pkgs/purl"
 	"github.com/git-pkgs/registries/internal/core"
-	"github.com/git-pkgs/registries/internal/xzcheck"
+	"github.com/git-pkgs/registries/internal/xzlimit"
 	"github.com/git-pkgs/vers"
 	"github.com/klauspost/compress/zstd"
-	"github.com/ulikunitz/xz"
 )
 
 const (
@@ -39,9 +37,6 @@ const (
 	// maxPrimarySize bounds the decompressed primary metadata. Fedora 44
 	// Everything x86_64 is about 185 MB.
 	maxPrimarySize = 1 << 30
-	// maxXZSize bounds a primary.xml.xz, which is read whole so its blocks
-	// can be checked before decoding.
-	maxXZSize = 128 << 20
 	// maxZstdWindow bounds the window a zstd frame may ask the decoder to
 	// allocate. zstd --ultra -22 uses 128 MiB.
 	maxZstdWindow = 128 << 20
@@ -87,7 +82,6 @@ type Registry struct {
 	urls      *URLs
 
 	maxPrimarySize int64
-	maxXZSize      int64
 
 	mu       sync.Mutex
 	packages map[string][]record
@@ -97,7 +91,7 @@ func New(baseURL string, client *core.Client) *Registry {
 	if client == nil {
 		client = core.DefaultClient()
 	}
-	r := &Registry{client: client, maxPrimarySize: maxPrimarySize, maxXZSize: maxXZSize}
+	r := &Registry{client: client, maxPrimarySize: maxPrimarySize}
 	u, err := url.Parse(baseURL)
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		r.configErr = fmt.Errorf("%w: %q is not a repository URL", ErrInvalidConfig, baseURL)
@@ -283,7 +277,6 @@ func (r *Registry) readPrimary(body io.Reader, primary *primaryData, primaryURL 
 	}
 
 	var decoded io.Reader
-	buffered := false
 	switch {
 	case strings.HasSuffix(primary.href, ".zst"):
 		zr, err := zstd.NewReader(counted, zstd.WithDecoderMaxWindow(maxZstdWindow), zstd.WithDecoderConcurrency(1))
@@ -293,25 +286,8 @@ func (r *Registry) readPrimary(body io.Reader, primary *primaryData, primaryURL 
 		defer zr.Close()
 		decoded = zr
 	case strings.HasSuffix(primary.href, ".xz"):
-		data, err := io.ReadAll(io.LimitReader(counted, r.maxXZSize+1))
-		if err != nil {
-			return err
-		}
-		if int64(len(data)) > r.maxXZSize {
-			return fmt.Errorf("%w: %s is larger than %d bytes", ErrMalformedMetadata, primaryURL, r.maxXZSize)
-		}
-		// Checked before decoding, so a bad file never reaches the decoder.
-		if err := check(); err != nil {
-			return err
-		}
-		if err := xzcheck.Check(data, xzcheck.MaxDict); err != nil {
-			return fmt.Errorf("%w: %w", ErrMalformedMetadata, err)
-		}
-		xr, err := xz.NewReader(bytes.NewReader(data))
-		if err != nil {
-			return fmt.Errorf("%w: %w", ErrMalformedMetadata, err)
-		}
-		decoded, buffered = xr, true
+		// Bounded as it decodes: a block asking for more is an error.
+		decoded = xzlimit.NewReader(counted, xzlimit.MaxDict)
 	case strings.HasSuffix(primary.href, ".gz"):
 		gz, err := gzip.NewReader(counted)
 		if err != nil {
@@ -332,9 +308,6 @@ func (r *Registry) readPrimary(body io.Reader, primary *primaryData, primaryURL 
 	}
 	if limited.N == 0 {
 		return fmt.Errorf("%w: %s decompresses to more than %d bytes", ErrMalformedMetadata, primaryURL, r.maxPrimarySize)
-	}
-	if buffered {
-		return nil
 	}
 	return check()
 }

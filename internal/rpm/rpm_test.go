@@ -457,21 +457,6 @@ func TestDecompressedLimit(t *testing.T) {
 	}
 }
 
-func TestXZSizeLimit(t *testing.T) {
-	rp, base := newRepo(t, ".xz", primaryXML)
-	size := int64(len(rp.files[rp.primaryHref()]))
-	r := New(base, core.DefaultClient())
-	r.maxXZSize = size - 1
-	if _, err := r.FetchVersions(context.Background(), "curl"); !errors.Is(err, ErrMalformedMetadata) {
-		t.Errorf("over the limit: err = %v, want ErrMalformedMetadata", err)
-	}
-	r = New(base, core.DefaultClient())
-	r.maxXZSize = size
-	if _, err := r.FetchVersions(context.Background(), "curl"); err != nil {
-		t.Errorf("at the limit: %v", err)
-	}
-}
-
 // A zstd frame asking for a 256 MiB window, which the decoder would allow
 // by default, is refused rather than allocated.
 func TestZstdWindowRefused(t *testing.T) {
