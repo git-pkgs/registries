@@ -399,3 +399,115 @@ func TestOverlongIndexCount(t *testing.T) {
 		t.Errorf("err = %v, want ErrMalformed for the index", err)
 	}
 }
+
+// withBlockSizes rebuilds a one-block CRC32 file so its block header
+// declares these sizes (nil leaves one out), with the index and footer
+// rewritten for the longer header.
+func withBlockSizes(t *testing.T, valid []byte, compressed, uncompressed *uint64) []byte {
+	t.Helper()
+	r := NewReader(bytes.NewReader(valid), MaxDict)
+	if _, err := io.Copy(io.Discard, r); err != nil || len(r.records) != 1 {
+		t.Fatalf("the fixture is not a one-block file: %v", err)
+	}
+	const checkSize = 4
+	oldHeaderSize := (int(valid[headerSize]) + 1) * 4
+	dataSize := int(r.records[0].unpadded) - oldHeaderSize - checkSize
+	data := valid[headerSize+oldHeaderSize : headerSize+oldHeaderSize+dataSize]
+	blockEnd := headerSize + int((r.records[0].unpadded+3)&^3)
+	check := valid[blockEnd-checkSize : blockEnd]
+
+	appendUvarint := func(b []byte, v uint64) []byte {
+		for v >= 0x80 {
+			b = append(b, byte(v)|0x80)
+			v >>= 7
+		}
+		return append(b, byte(v))
+	}
+	header := []byte{0, 0}
+	if compressed != nil {
+		header[1] |= 0x40
+		header = appendUvarint(header, *compressed)
+	}
+	if uncompressed != nil {
+		header[1] |= 0x80
+		header = appendUvarint(header, *uncompressed)
+	}
+	header = append(header, lzma2Filter, 0x01, valid[headerSize+4])
+	for len(header)%4 != 0 {
+		header = append(header, 0)
+	}
+	header[0] = byte(len(header)/4 + 1 - 1)
+	header = binary.LittleEndian.AppendUint32(header, crc32.ChecksumIEEE(header))
+
+	block := bytes.Join([][]byte{header, data}, nil)
+	unpadded := len(block) + checkSize
+	for len(block)%4 != 0 {
+		block = append(block, 0)
+	}
+	block = append(block, check...)
+
+	index := appendUvarint([]byte{0x00, 0x01}, uint64(unpadded))
+	index = appendUvarint(index, uint64(r.records[0].uncompressed))
+	for len(index)%4 != 0 {
+		index = append(index, 0)
+	}
+	index = binary.LittleEndian.AppendUint32(index, crc32.ChecksumIEEE(index))
+	footer := bytes.Clone(valid[len(valid)-footerSize:])
+	binary.LittleEndian.PutUint32(footer[4:], uint32(len(index)/4-1))
+	binary.LittleEndian.PutUint32(footer, crc32.ChecksumIEEE(footer[4:10]))
+	return bytes.Join([][]byte{valid[:headerSize], block, index, footer}, nil)
+}
+
+// A block header may declare the sizes of its data; they must be the sizes
+// the block turns out to have.
+func TestDeclaredBlockSizes(t *testing.T) {
+	text := strings.Repeat(sample, 20)
+	valid := compress(t, xz.WriterConfig{CheckSum: xz.CRC32}, []byte(text))
+	r := NewReader(bytes.NewReader(valid), MaxDict)
+	if _, err := io.Copy(io.Discard, r); err != nil {
+		t.Fatal(err)
+	}
+	blockHeaderSize := (int(valid[headerSize]) + 1) * 4
+	compressed := uint64(r.records[0].unpadded) - uint64(blockHeaderSize) - 4
+	uncompressed := uint64(len(text))
+	ptr := func(v uint64) *uint64 { return &v }
+
+	for name, sizes := range map[string][2]*uint64{
+		"both":              {ptr(compressed), ptr(uncompressed)},
+		"compressed only":   {ptr(compressed), nil},
+		"uncompressed only": {nil, ptr(uncompressed)},
+	} {
+		data := withBlockSizes(t, valid, sizes[0], sizes[1])
+		if got := reference(t, data); string(got) != text {
+			t.Fatalf("%s: the fixture does not decode with the library", name)
+		}
+		if got, err := decode(data, MaxDict); err != nil || string(got) != text {
+			t.Errorf("%s: decoded %d bytes, %v", name, len(got), err)
+		}
+	}
+	for name, sizes := range map[string][2]*uint64{
+		"compressed too small":   {ptr(compressed - 1), ptr(uncompressed)},
+		"compressed too large":   {ptr(compressed + 1), nil},
+		"uncompressed zero":      {nil, ptr(0)},
+		"uncompressed too large": {ptr(compressed), ptr(uncompressed + 1)},
+	} {
+		if _, err := decode(withBlockSizes(t, valid, sizes[0], sizes[1]), MaxDict); !errors.Is(err, ErrMalformed) || !strings.Contains(err.Error(), "block header") {
+			t.Errorf("%s: err = %v, want ErrMalformed for the block header's size", name, err)
+		}
+	}
+}
+
+// A declared size that never ends is named as the header's fault.
+func TestUnterminatedBlockSize(t *testing.T) {
+	data := compress(t, xz.WriterConfig{CheckSum: xz.CRC32}, []byte(sample))
+	size := (int(data[headerSize]) + 1) * 4
+	header := data[headerSize : headerSize+size]
+	header[1] = 0x40
+	for i := 2; i < size-4; i++ {
+		header[i] = 0x80
+	}
+	fixCRC(data, headerSize, size)
+	if _, err := decode(data, MaxDict); !errors.Is(err, ErrMalformed) || !strings.Contains(err.Error(), "bad block header") {
+		t.Errorf("err = %v, want ErrMalformed for the block header", err)
+	}
+}
