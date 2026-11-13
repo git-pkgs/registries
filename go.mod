@@ -15,6 +15,7 @@ require (
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/rs/dnscache v0.0.0-20230804202142-fc85eb664529
 	github.com/rubyist/circuitbreaker v2.2.1+incompatible
+	github.com/ulikunitz/xz v0.5.17
 	go.yaml.in/yaml/v3 v3.0.6
 )
 
