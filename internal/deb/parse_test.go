@@ -361,7 +361,7 @@ func TestCheckXZContainer(t *testing.T) {
 		"header past the end": xzStream(append([]byte{0xFF}, small[1:]...)),
 		// The index lists one block; the decoder reads both headers.
 		"block the index leaves out":     xzFile{blocks: []xzBlock{{header: small}, {header: large}}, checkType: 1, records: 1}.bytes(),
-		"index lists more than it holds": xzFile{blocks: []xzBlock{{header: small}}, checkType: 1, records: 1 << 40}.bytes(),
+		"index lists more than it holds": xzFile{blocks: []xzBlock{{header: small}}, checkType: 1, records: 1 << 30}.bytes(),
 		"large second block":             xzStream(small, large),
 		"large after a stored chunk":     xzFile{blocks: []xzBlock{{small, stored}, {header: large}}, checkType: 1, records: -1}.bytes(),
 		"large after an lzma chunk":      xzFile{blocks: []xzBlock{{small, lzmaWithProps}, {header: large}}, checkType: 1, records: -1}.bytes(),
