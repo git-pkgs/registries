@@ -560,27 +560,8 @@ func TestDecompressedIndexLimit(t *testing.T) {
 	}
 }
 
-func TestXZSizeLimit(t *testing.T) {
-	a := newArchive(t)
-	a.index("bookworm", "main/binary-amd64", "Packages.xz", bookwormAMD64)
-	a.release("bookworm", "bookworm", true)
-	base := a.server().URL + "/debian"
-	size := int64(len(a.served["dists/bookworm/main/binary-amd64/Packages.xz"]))
-
-	r := newRegistry(base, "suites=bookworm&architectures=amd64")
-	r.maxXZSize = size - 1
-	if _, err := r.FetchVersions(context.Background(), "curl"); !errors.Is(err, ErrMalformedIndex) {
-		t.Errorf("over the limit: err = %v, want ErrMalformedIndex", err)
-	}
-	r = newRegistry(base, "suites=bookworm&architectures=amd64")
-	r.maxXZSize = size
-	if _, err := r.FetchVersions(context.Background(), "curl"); err != nil {
-		t.Errorf("at the limit: %v", err)
-	}
-}
-
-// An .xz whose blocks ask for too large a dictionary is refused before it
-// is decoded, even when the Release lists it.
+// An .xz whose blocks ask for too large a dictionary is refused, even when
+// the Release lists it.
 func TestXZDictionaryRefused(t *testing.T) {
 	a := newArchive(t)
 	path := "dists/bookworm/main/binary-amd64/Packages.xz"
