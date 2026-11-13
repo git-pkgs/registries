@@ -20,6 +20,7 @@ import (
 
 	"github.com/git-pkgs/purl"
 	"github.com/git-pkgs/registries/internal/core"
+	"github.com/git-pkgs/registries/internal/xzcheck"
 	"github.com/git-pkgs/vers"
 	"github.com/ulikunitz/xz"
 )
@@ -329,8 +330,8 @@ func (r *Registry) parseIndex(body io.Reader, variant, indexURL string, sum *fil
 		if err := checkSum(hasher, counted.n, sum, indexURL); err != nil {
 			return nil, err
 		}
-		if err := checkXZ(data, maxXZDict); err != nil {
-			return nil, err
+		if err := xzcheck.Check(data, xzcheck.MaxDict); err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrMalformedIndex, err)
 		}
 		xr, err := xz.NewReader(bytes.NewReader(data))
 		if err != nil {

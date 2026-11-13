@@ -1,33 +1,41 @@
-package deb
+// Package xzcheck bounds the memory an .xz file can make its decoder
+// allocate, by reading the file's container before it is decoded.
+package xzcheck
 
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 )
 
-// maxXZDict bounds the LZMA2 dictionary an index may ask for. The decoder
-// allocates the dictionary a block header names, up to 4 GiB, and its own
-// DictCap does not lower that (ulikunitz/xz#84). Debian uses 8 MiB.
-const maxXZDict = 64 << 20
+// ErrMalformed is returned for a file that is not a well-formed .xz
+// container, or whose blocks ask for too large a dictionary.
+var ErrMalformed = errors.New("malformed xz file")
+
+// MaxDict is the LZMA2 dictionary size callers allow by default. The
+// ulikunitz/xz decoder allocates the dictionary a block header names, up to
+// 4 GiB, and its own DictCap does not lower that (ulikunitz/xz#84). xz -9
+// uses 64 MiB; Debian's indexes use 8 MiB.
+const MaxDict = 64 << 20
 
 const (
-	xzHeaderSize = 12
-	xzFooterSize = 12
-	lzma2Filter  = 0x21
-	maxVarint    = 9
+	headerSize  = 12
+	footerSize  = 12
+	lzma2Filter = 0x21
+	maxVarint   = 9
 )
 
 var (
-	xzHeaderMagic = []byte{0xFD, '7', 'z', 'X', 'Z', 0x00}
-	xzFooterMagic = []byte{'Y', 'Z'}
+	headerMagic = []byte{0xFD, '7', 'z', 'X', 'Z', 0x00}
+	footerMagic = []byte{'Y', 'Z'}
 )
 
-// checkXZ checks every block of every stream in an .xz file for an LZMA2
+// Check checks every block of every stream in an .xz file for an LZMA2
 // dictionary larger than maxDict, before the file is decoded. Streams are
 // found from the end, through each stream's footer and index, so blocks
 // need not be decoded to be found.
-func checkXZ(data []byte, maxDict uint64) error {
+func Check(data []byte, maxDict uint64) error {
 	end := len(data)
 	streams := 0
 	for {
@@ -38,34 +46,34 @@ func checkXZ(data []byte, maxDict uint64) error {
 		if end == 0 {
 			break
 		}
-		start, err := checkXZStream(data[:end], maxDict)
+		start, err := checkStream(data[:end], maxDict)
 		if err != nil {
-			return fmt.Errorf("%w: xz: %w", ErrMalformedIndex, err)
+			return fmt.Errorf("%w: %w", ErrMalformed, err)
 		}
 		end = start
 		streams++
 	}
 	if streams == 0 {
-		return fmt.Errorf("%w: xz: no stream", ErrMalformedIndex)
+		return fmt.Errorf("%w: no stream", ErrMalformed)
 	}
 	return nil
 }
 
-// checkXZStream checks the stream that ends data and returns its offset.
-func checkXZStream(data []byte, maxDict uint64) (int, error) {
-	if len(data) < xzHeaderSize+xzFooterSize {
+// checkStream checks the stream that ends data and returns its offset.
+func checkStream(data []byte, maxDict uint64) (int, error) {
+	if len(data) < headerSize+footerSize {
 		return 0, fmt.Errorf("stream too short")
 	}
-	footer := data[len(data)-xzFooterSize:]
-	if !bytes.Equal(footer[10:], xzFooterMagic) {
+	footer := data[len(data)-footerSize:]
+	if !bytes.Equal(footer[10:], footerMagic) {
 		return 0, fmt.Errorf("no stream footer")
 	}
 	indexSize := (int(binary.LittleEndian.Uint32(footer[4:8])) + 1) * 4
-	indexStart := len(data) - xzFooterSize - indexSize
+	indexStart := len(data) - footerSize - indexSize
 	if indexStart < 0 {
 		return 0, fmt.Errorf("index outside the stream")
 	}
-	blocks, err := xzIndexBlocks(data[indexStart:len(data)-xzFooterSize], indexStart)
+	blocks, err := indexBlocks(data[indexStart:len(data)-footerSize], indexStart)
 	if err != nil {
 		return 0, err
 	}
@@ -73,13 +81,13 @@ func checkXZStream(data []byte, maxDict uint64) (int, error) {
 	for _, size := range blocks {
 		total += size
 	}
-	start := indexStart - total - xzHeaderSize
-	if start < 0 || !bytes.Equal(data[start:start+len(xzHeaderMagic)], xzHeaderMagic) {
+	start := indexStart - total - headerSize
+	if start < 0 || !bytes.Equal(data[start:start+len(headerMagic)], headerMagic) {
 		return 0, fmt.Errorf("no stream header")
 	}
-	offset := start + xzHeaderSize
+	offset := start + headerSize
 	for _, size := range blocks {
-		if err := checkXZBlockHeader(data[offset:offset+size], maxDict); err != nil {
+		if err := checkBlockHeader(data[offset:offset+size], maxDict); err != nil {
 			return 0, err
 		}
 		offset += size
@@ -87,10 +95,10 @@ func checkXZStream(data []byte, maxDict uint64) (int, error) {
 	return start, nil
 }
 
-// xzIndexBlocks reads an xz index and returns the space each block takes,
+// indexBlocks reads an xz index and returns the space each block takes,
 // its unpadded size rounded up to four bytes. No block is larger than
 // limit, the bytes before the index.
-func xzIndexBlocks(index []byte, limit int) ([]int, error) {
+func indexBlocks(index []byte, limit int) ([]int, error) {
 	if len(index) == 0 || index[0] != 0 {
 		return nil, fmt.Errorf("no index")
 	}
@@ -121,8 +129,8 @@ func xzIndexBlocks(index []byte, limit int) ([]int, error) {
 	return blocks, nil
 }
 
-// checkXZBlockHeader reads the filters of the block that starts block.
-func checkXZBlockHeader(block []byte, maxDict uint64) error {
+// checkBlockHeader reads the filters of the block that starts block.
+func checkBlockHeader(block []byte, maxDict uint64) error {
 	if len(block) == 0 || block[0] == 0 {
 		return fmt.Errorf("no block header")
 	}
