@@ -483,15 +483,38 @@ func TestFetchMaintainers(t *testing.T) {
 }
 
 func TestURLs(t *testing.T) {
-	u := New("https://deb.debian.org/debian/?suites=bookworm&architectures=amd64", nil).URLs()
+	u := New("https://deb.debian.org/debian/?architectures=amd64&suites=bookworm,bookworm-updates", nil).URLs()
 	if got := u.Download("curl", "7.88.1-10"); got != "" {
 		t.Errorf("Download = %q, want none without the index", got)
 	}
-	if got, want := u.PURL("debian/curl", "7.88.1-10"), "pkg:deb/debian/curl@7.88.1-10?repository_url=https:%2F%2Fdeb.debian.org%2Fdebian"; got != want {
+	// repository_url is the whole configured URL, so the PURL names what
+	// to read.
+	const repo = "?repository_url=https:%2F%2Fdeb.debian.org%2Fdebian%3Fsuites%3Dbookworm%2Cbookworm-updates%26components%3Dmain%26architectures%3Damd64"
+	if got, want := u.PURL("debian/curl", "7.88.1-10"), "pkg:deb/debian/curl@7.88.1-10"+repo; got != want {
 		t.Errorf("PURL = %q, want %q", got, want)
 	}
-	if got, want := u.PURL("debian/curl", "1:9.2p1-2"), "pkg:deb/debian/curl@1:9.2p1-2?repository_url=https:%2F%2Fdeb.debian.org%2Fdebian"; got != want {
+	if got, want := u.PURL("debian/curl", "1:9.2p1-2"), "pkg:deb/debian/curl@1:9.2p1-2"+repo; got != want {
 		t.Errorf("PURL with epoch = %q, want %q", got, want)
+	}
+}
+
+func TestPURLWithoutArchive(t *testing.T) {
+	if got, want := New("", nil).URLs().PURL("debian/curl", "7.88.1-10"), "pkg:deb/debian/curl@7.88.1-10"; got != want {
+		t.Errorf("PURL = %q, want %q", got, want)
+	}
+}
+
+// A PURL the registry builds leads back to the same archive and indexes.
+func TestPURLRoundTrip(t *testing.T) {
+	_, base := standard(t)
+	r := newRegistry(base, "suites=bookworm,bookworm-updates&architectures=amd64")
+	reg, name, version, err := core.NewFromPURL(r.URLs().PURL("debian/curl", "7.88.1-10+deb12u14"), core.DefaultClient())
+	if err != nil || name != "debian/curl" || version != "7.88.1-10+deb12u14" {
+		t.Fatalf("NewFromPURL = %q, %q, %v", name, version, err)
+	}
+	versions, err := reg.FetchVersions(context.Background(), name)
+	if err != nil || len(versions) != 2 || versions[0].Number != version {
+		t.Errorf("FetchVersions = %v, %v", numbers(versions), err)
 	}
 }
 

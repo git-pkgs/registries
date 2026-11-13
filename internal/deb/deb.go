@@ -95,8 +95,19 @@ func New(baseURL string, client *core.Client) *Registry {
 	}
 	r := &Registry{client: client, maxIndexSize: maxIndexSize, maxXZSize: maxXZSize}
 	r.configErr = r.configure(baseURL)
-	r.urls = &URLs{archiveURL: r.archiveURL}
+	r.urls = &URLs{repositoryURL: r.repositoryURL()}
 	return r
+}
+
+// repositoryURL is the URL that configures this Registry, as a PURL's
+// repository_url carries it: the archive root with what to read from it.
+func (r *Registry) repositoryURL() string {
+	if r.archiveURL == "" {
+		return ""
+	}
+	return r.archiveURL + "?suites=" + strings.Join(r.suites, ",") +
+		"&components=" + strings.Join(r.components, ",") +
+		"&architectures=" + strings.Join(r.architectures, ",")
 }
 
 func (r *Registry) configure(baseURL string) error {
@@ -513,7 +524,7 @@ func parseMaintainer(value string) core.Maintainer {
 }
 
 type URLs struct {
-	archiveURL string
+	repositoryURL string
 }
 
 func (u *URLs) Registry(name, version string) string {
@@ -532,8 +543,8 @@ func (u *URLs) Documentation(name, version string) string {
 func (u *URLs) PURL(name, version string) string {
 	namespace, pkg := splitName(name)
 	var qualifiers map[string]string
-	if u.archiveURL != "" {
-		qualifiers = map[string]string{"repository_url": u.archiveURL}
+	if u.repositoryURL != "" {
+		qualifiers = map[string]string{"repository_url": u.repositoryURL}
 	}
 	return purl.New(ecosystem, namespace, pkg, version, qualifiers).String()
 }
