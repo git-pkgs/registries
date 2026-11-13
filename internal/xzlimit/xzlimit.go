@@ -69,7 +69,16 @@ type Reader struct {
 	block      io.Reader
 	check      hash.Hash
 	blockStart int64 // offset of the block header
+	dataStart  int64 // offset of the block's data
+	declared   blockSizes
 	produced   int64
+}
+
+// blockSizes are the sizes a block header declares for its data, or -1
+// for one it leaves out.
+type blockSizes struct {
+	compressed   int64
+	uncompressed int64
 }
 
 // record is what the index lists for a block.
@@ -231,7 +240,7 @@ func (r *Reader) startBlock(sizeByte byte) error {
 	if crc32.ChecksumIEEE(header[:size-4]) != binary.LittleEndian.Uint32(header[size-4:]) {
 		return errors.New("block header checksum")
 	}
-	dict, err := blockDictSize(header[1 : size-4])
+	dict, declared, err := blockFields(header[1 : size-4])
 	if err != nil {
 		return err
 	}
@@ -246,44 +255,53 @@ func (r *Reader) startBlock(sizeByte byte) error {
 	}
 	r.block = block
 	r.check = newCheck(r.checkType)
+	r.dataStart = r.blockStart + int64(size)
+	r.declared = declared
 	r.produced = 0
 	return nil
 }
 
-// blockDictSize reads a block header's fields, without its size byte and
-// checksum, and returns the dictionary size of its LZMA2 filter.
-func blockDictSize(fields []byte) (uint64, error) {
+// blockFields reads a block header's fields, without its size byte and
+// checksum, and returns the dictionary size of its LZMA2 filter and the
+// sizes it declares for the block's data.
+func blockFields(fields []byte) (uint64, blockSizes, error) {
+	sizes := blockSizes{compressed: -1, uncompressed: -1}
 	flags := fields[0]
 	if flags&0x3C != 0 {
-		return 0, errors.New("reserved block flags")
+		return 0, sizes, errors.New("reserved block flags")
 	}
 	if flags&0x03 != 0 {
-		return 0, errors.New("unsupported filter chain: more than one filter")
+		return 0, sizes, errors.New("unsupported filter chain: more than one filter")
 	}
 	pos := 1
-	for _, present := range []byte{0x40, 0x80} { // compressed and uncompressed sizes
-		if flags&present != 0 {
-			_, n := uvarint(fields[pos:])
-			if n == 0 {
-				return 0, errors.New("bad block header")
-			}
-			pos += n
+	for _, field := range []struct {
+		present byte
+		size    *int64
+	}{{0x40, &sizes.compressed}, {0x80, &sizes.uncompressed}} {
+		if flags&field.present == 0 {
+			continue
 		}
+		v, n := uvarint(fields[pos:])
+		if n == 0 {
+			return 0, sizes, errors.New("bad block header")
+		}
+		*field.size = int64(v)
+		pos += n
 	}
 	// One filter: LZMA2, with one byte of properties.
 	if len(fields)-pos < 3 || fields[pos] != lzma2Filter || fields[pos+1] != 1 {
-		return 0, errors.New("unsupported filter chain: not LZMA2")
+		return 0, sizes, errors.New("unsupported filter chain: not LZMA2")
 	}
 	bits := fields[pos+2]
 	if bits > 40 {
-		return 0, errors.New("bad LZMA2 properties")
+		return 0, sizes, errors.New("bad LZMA2 properties")
 	}
 	for _, b := range fields[pos+3:] {
 		if b != 0 {
-			return 0, errors.New("bad block header padding")
+			return 0, sizes, errors.New("bad block header padding")
 		}
 	}
-	return dictSize(bits), nil
+	return dictSize(bits), sizes, nil
 }
 
 // dictSize decodes the LZMA2 dictionary size property, 0 to 40.
@@ -314,6 +332,12 @@ func (noCheck) Sum([]byte) []byte           { return nil }
 
 // finishBlock reads what follows a block's data: its padding and check.
 func (r *Reader) finishBlock() error {
+	if d := r.declared.compressed; d >= 0 && d != r.src.n-r.dataStart {
+		return fmt.Errorf("block header declares %d bytes of data, the block has %d", d, r.src.n-r.dataStart)
+	}
+	if d := r.declared.uncompressed; d >= 0 && d != r.produced {
+		return fmt.Errorf("block header declares %d bytes uncompressed, the block has %d", d, r.produced)
+	}
 	unpadded := r.src.n - r.blockStart
 	if padding := int((4 - unpadded%4) % 4); padding > 0 {
 		zeros, err := r.src.full(padding)
