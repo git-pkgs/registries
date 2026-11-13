@@ -161,8 +161,12 @@ type release struct {
 // parseRelease reads a Release file, or an InRelease file, whose
 // clearsigned text is read without checking the signature.
 func parseRelease(data []byte) (*release, error) {
+	text, err := clearsignedText(data)
+	if err != nil {
+		return nil, err
+	}
 	rel := &release{files: map[string]fileSum{}}
-	scanner := bufio.NewScanner(bytes.NewReader(clearsignedText(data)))
+	scanner := bufio.NewScanner(bytes.NewReader(text))
 	scanner.Buffer(nil, maxLineSize)
 	field := ""
 	for scanner.Scan() {
@@ -202,24 +206,28 @@ func parseRelease(data []byte) (*release, error) {
 
 // clearsignedText returns the signed text of an OpenPGP clearsigned
 // message, with dash escapes removed, or data unchanged if it is not one.
-func clearsignedText(data []byte) []byte {
+// A clearsigned message without its header separator or its signature is
+// an error rather than an empty Release, which would check nothing.
+func clearsignedText(data []byte) ([]byte, error) {
 	const begin, sig = "-----BEGIN PGP SIGNED MESSAGE-----", "-----BEGIN PGP SIGNATURE-----"
 	if !bytes.HasPrefix(data, []byte(begin)) {
-		return data
+		return data, nil
 	}
+	data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
 	// Armor headers such as Hash: end at the first blank line.
 	_, body, ok := bytes.Cut(data, []byte("\n\n"))
 	if !ok {
-		return nil
+		return nil, fmt.Errorf("%w: clearsigned Release has no header separator", ErrMalformedIndex)
 	}
-	if i := bytes.Index(body, []byte("\n"+sig)); i >= 0 {
-		body = body[:i+1]
+	end := bytes.Index(body, []byte("\n"+sig))
+	if end < 0 {
+		return nil, fmt.Errorf("%w: clearsigned Release has no signature", ErrMalformedIndex)
 	}
-	lines := bytes.SplitAfter(body, []byte("\n"))
+	lines := bytes.SplitAfter(body[:end+1], []byte("\n"))
 	for i, line := range lines {
 		lines[i] = bytes.TrimPrefix(line, []byte("- "))
 	}
-	return bytes.Join(lines, nil)
+	return bytes.Join(lines, nil), nil
 }
 
 // distro is the codename a suite's packages are recorded under:
@@ -244,33 +252,24 @@ func parseDependencies(fields ...string) []dependency {
 	for _, field := range fields {
 		for _, group := range strings.Split(field, ",") {
 			first, _, _ := strings.Cut(group, "|")
-			first = cutBetween(cutBetween(first, "[", "]"), "<", ">")
-			name, requirement, _ := strings.Cut(first, "(")
-			name = strings.TrimSpace(name)
-			name, _, _ = strings.Cut(name, ":")
-			if name == "" {
+			// The version comes first: its << and >> are not profiles.
+			name, rest, versioned := strings.Cut(first, "(")
+			requirement := ""
+			if versioned {
+				requirement, _, _ = strings.Cut(rest, ")")
+			}
+			// What is left of the name ends at a qualifier, restriction or
+			// profile.
+			if i := strings.IndexAny(name, ":[<"); i >= 0 {
+				name = name[:i]
+			}
+			if name = strings.TrimSpace(name); name == "" {
 				continue
 			}
-			requirement = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(requirement), ")"))
-			deps = append(deps, dependency{name: name, requirement: requirement})
+			deps = append(deps, dependency{name: name, requirement: strings.TrimSpace(requirement)})
 		}
 	}
 	return deps
-}
-
-// cutBetween removes every open...close span from s.
-func cutBetween(s, open, close string) string {
-	for {
-		i := strings.Index(s, open)
-		if i < 0 {
-			return s
-		}
-		j := strings.Index(s[i:], close)
-		if j < 0 {
-			return s[:i]
-		}
-		s = s[:i] + s[i+j+len(close):]
-	}
 }
 
 // safePoolPath reports whether a Filename stays under the archive root:

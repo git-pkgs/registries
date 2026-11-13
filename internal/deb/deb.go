@@ -183,8 +183,11 @@ func (r *Registry) index(ctx context.Context) (map[string][]record, error) {
 
 	packages := map[string][]record{}
 	seen := map[string]bool{}
+	// A version is recorded once per release: bookworm-updates repeating
+	// one, or binary-all repeating an Architecture: all package, adds
+	// nothing, while the same version in trixie is another artifact.
 	add := func(rec record) {
-		key := rec.name + "\x00" + rec.version + "\x00" + rec.arch
+		key := rec.name + "\x00" + rec.version + "\x00" + rec.arch + "\x00" + rec.distro
 		if seen[key] {
 			return
 		}
@@ -277,8 +280,12 @@ func (rel *release) lists(dir string) bool {
 
 // readIndex reads the first variant of dir's index that is served. With a
 // Release, only variants it lists are tried, and each is checked against
-// its entry. It reports whether an index was read.
+// its entry. It reports whether an index was read: a directory the Release
+// doesn't list, or without a Release one the archive doesn't serve, has
+// none. A directory the Release lists must be served, or a mirror caught
+// mid-sync would leave its packages out for the Registry's lifetime.
 func (r *Registry) readIndex(ctx context.Context, suite, dir string, rel *release, fn func(record)) (bool, error) {
+	listed := false
 	for _, variant := range indexVariants {
 		var sum *fileSum
 		if rel != nil && len(rel.files) > 0 {
@@ -287,6 +294,7 @@ func (r *Registry) readIndex(ctx context.Context, suite, dir string, rel *releas
 				continue
 			}
 			sum = &entry
+			listed = true
 		}
 		indexURL := r.archiveURL + "/dists/" + suite + "/" + dir + "/" + variant
 		var recs []record
@@ -305,6 +313,9 @@ func (r *Registry) readIndex(ctx context.Context, suite, dir string, rel *releas
 			fn(rec)
 		}
 		return true, nil
+	}
+	if listed {
+		return false, fmt.Errorf("%w: %s/dists/%s/%s is listed in the Release but not served", ErrNoIndex, r.archiveURL, suite, dir)
 	}
 	return false, nil
 }

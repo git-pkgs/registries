@@ -666,3 +666,68 @@ func TestChecksumSizeMismatch(t *testing.T) {
 		t.Errorf("err = %v, want ErrChecksumMismatch", err)
 	}
 }
+
+// The same version in two releases is one version with an artifact for
+// each, so either distro resolves; within a release, -updates repeating a
+// version adds nothing.
+func TestSameVersionInTwoReleases(t *testing.T) {
+	a := newArchive(t)
+	a.index("bookworm", "main/binary-amd64", "Packages.xz", caCertificatesOnly)
+	a.release("bookworm", "bookworm", true)
+	a.index("bookworm-updates", "main/binary-amd64", "Packages.xz", caCertificatesOnly)
+	a.release("bookworm-updates", "bookworm-updates", true)
+	a.index("trixie", "main/binary-amd64", "Packages.xz", caCertificatesOnly)
+	a.release("trixie", "trixie", true)
+	base := a.server().URL + "/debian"
+
+	versions, err := newRegistry(base, "suites=bookworm,bookworm-updates,trixie&architectures=amd64").FetchVersions(context.Background(), "ca-certificates")
+	if err != nil || len(versions) != 1 {
+		t.Fatalf("FetchVersions = %v, %v", numbers(versions), err)
+	}
+	var distros []any
+	for _, artifact := range versions[0].Artifacts {
+		distros = append(distros, artifact.Metadata["distro"])
+	}
+	if want := []any{"bookworm", "trixie"}; !reflect.DeepEqual(distros, want) {
+		t.Errorf("artifact distros = %v, want %v", distros, want)
+	}
+}
+
+// An index the Release lists but the archive doesn't serve, as on a mirror
+// caught mid-sync, fails the read rather than leaving its packages out.
+func TestListedIndexMissing(t *testing.T) {
+	a := newArchive(t)
+	a.index("bookworm", "main/binary-amd64", "Packages.xz", bookwormAMD64)
+	a.index("bookworm", "main/binary-arm64", "Packages.xz", bookwormARM64)
+	a.index("bookworm", "main/binary-arm64", "Packages.gz", bookwormARM64)
+	a.release("bookworm", "bookworm", true)
+	xzPath, gzPath := "dists/bookworm/main/binary-arm64/Packages.xz", "dists/bookworm/main/binary-arm64/Packages.gz"
+	xzData, gzData := a.served[xzPath], a.served[gzPath]
+	delete(a.served, xzPath)
+	delete(a.served, gzPath)
+	base := a.server().URL + "/debian"
+
+	r := newRegistry(base, "suites=bookworm&architectures=amd64,arm64")
+	if _, err := r.FetchVersions(context.Background(), "curl"); !errors.Is(err, ErrNoIndex) {
+		t.Fatalf("err = %v, want ErrNoIndex", err)
+	}
+	// Nothing was kept, so the index is read once the mirror has it.
+	a.mu.Lock()
+	a.served[xzPath], a.served[gzPath] = xzData, gzData
+	a.mu.Unlock()
+	versions, err := r.FetchVersions(context.Background(), "curl")
+	if err != nil || len(versions) != 1 || len(versions[0].Artifacts) != 2 {
+		t.Errorf("after the mirror caught up: %+v, %v", versions, err)
+	}
+}
+
+// An architecture the Release doesn't list at all is skipped, as before.
+func TestUnlistedArchitectureSkipped(t *testing.T) {
+	a := newArchive(t)
+	a.index("bookworm", "main/binary-amd64", "Packages.xz", bookwormAMD64)
+	a.release("bookworm", "bookworm", true)
+	base := a.server().URL + "/debian"
+	if _, err := newRegistry(base, "suites=bookworm&architectures=amd64,riscv64").FetchVersions(context.Background(), "curl"); err != nil {
+		t.Errorf("FetchVersions: %v", err)
+	}
+}
