@@ -6,8 +6,8 @@ github.com/facebookgo/clock v0.0.0-20150410010913-600d898af40a h1:yDWHCSQ40h88yi
 github.com/facebookgo/clock v0.0.0-20150410010913-600d898af40a/go.mod h1:7Ga40egUymuWXxAe151lTNnCv97MddSOVsjpPPkityA=
 github.com/git-pkgs/artifacts v0.2.1 h1:VwdxR4yTDaqBZ34h0slxQBVyr2Xfa+QGOKCKviMx2xk=
 github.com/git-pkgs/artifacts v0.2.1/go.mod h1:Otosgq52pXT5UNN7lh6s/lszpWKVDO8XrOjN1M70/IA=
-github.com/git-pkgs/pom v0.1.8 h1:mXCuWw6XkrKKZb6IurRZyIznYLPhV5AYg5ZO38Uj/l8=
-github.com/git-pkgs/pom v0.1.8/go.mod h1:sQBeYRzjCUn77fcABPn6I/a1aBHFxm55jTmkNxYtGtw=
+github.com/git-pkgs/pom v0.1.9 h1:gP7nqAS+UXITeRXjHhpyrMHRl9K3sRRBzRLV3+TeqHU=
+github.com/git-pkgs/pom v0.1.9/go.mod h1:sQBeYRzjCUn77fcABPn6I/a1aBHFxm55jTmkNxYtGtw=
 github.com/git-pkgs/purl v0.2.1 h1:b46hRlOMbrG6aXjjFJdYixGi5WTh0TLlAnH9iNeuOS0=
 github.com/git-pkgs/purl v0.2.1/go.mod h1:l8rCfvt5iXVrFIcoQ8+vCLOaHhrtEW2id0LENP+IzMw=
 github.com/git-pkgs/spdx v0.3.3 h1:xXlUoZzjDSkwxC6mWHfaW+kc8a0+LH6d+gGHuZWftqI=
