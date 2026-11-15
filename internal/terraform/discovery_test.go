@@ -2,12 +2,14 @@ package terraform
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 
+	"github.com/git-pkgs/registries/client"
 	"github.com/git-pkgs/registries/internal/core"
 )
 
@@ -51,16 +53,32 @@ func TestServiceDiscoveryFallsBackToTheBaseURL(t *testing.T) {
 		"no document":  "",
 		"no entry":     `{"login.v1": {"client": "terraform-cli"}}`,
 		"entry string": `{"providers.v1": 42, "modules.v1": ["x"]}`,
+		// A host that answers unknown paths with an HTML page.
+		"not json": `<!doctype html><html><body>app</body></html>`,
+		// Refused, as by a host that serves no discovery.
+		"forbidden": "403",
 	} {
 		t.Run(name, func(t *testing.T) {
 			routes := map[string]string{
 				"/registry/v1/providers/hashicorp/random/versions":   providerVersionsJSON,
 				"/registry/v1/modules/hashicorp/consul/aws/versions": `{"modules": [{"versions": [{"version": "0.11.0"}]}]}`,
 			}
-			if document != "" {
+			if document != "" && document != "403" {
 				routes[discoveryPath] = document
 			}
-			server := providerServer(t, routes)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == discoveryPath && document == "403" {
+					w.WriteHeader(http.StatusForbidden)
+					return
+				}
+				body, ok := routes[r.URL.Path]
+				if !ok {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+				_, _ = w.Write([]byte(body))
+			}))
+			t.Cleanup(server.Close)
 			r := New(server.URL+"/registry", core.DefaultClient())
 			if versions, err := r.FetchVersions(context.Background(), "hashicorp/random"); err != nil || len(versions) != 3 {
 				t.Errorf("provider versions = %v, %v; want 3", versions, err)
@@ -131,5 +149,39 @@ func TestServiceDiscoveryResolvesAgainstTheRedirectedDocument(t *testing.T) {
 	t.Cleanup(server.Close)
 	if versions, err := New(server.URL, core.DefaultClient()).FetchVersions(context.Background(), "hashicorp/random"); err != nil || len(versions) != 3 {
 		t.Errorf("versions = %v, %v; want 3", versions, err)
+	}
+}
+
+type recordingTransport struct {
+	paths []string
+}
+
+func (rt *recordingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	rt.paths = append(rt.paths, r.URL.Host+r.URL.Path)
+	body := `{"modules": [{"versions": [{"version": "0.11.0"}]}]}`
+	if strings.HasPrefix(r.URL.Path, "/v1/providers/") {
+		body = providerVersionsJSON
+	}
+	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+}
+
+// registry.terraform.io serves the protocol at /v1/modules/ and
+// /v1/providers/, so the default registry is asked without discovery: the
+// PURL helpers build a new Registry per call.
+func TestDefaultRegistrySkipsDiscovery(t *testing.T) {
+	rt := &recordingTransport{}
+	r := New(DefaultURL, core.NewClient(client.WithTransport(rt)))
+	if _, err := r.FetchVersions(context.Background(), "hashicorp/random"); err != nil {
+		t.Fatalf("provider versions: %v", err)
+	}
+	if _, err := r.FetchVersions(context.Background(), "hashicorp/consul/aws"); err != nil {
+		t.Fatalf("module versions: %v", err)
+	}
+	want := []string{
+		"registry.terraform.io/v1/providers/hashicorp/random/versions",
+		"registry.terraform.io/v1/modules/hashicorp/consul/aws/versions",
+	}
+	if strings.Join(rt.paths, " ") != strings.Join(want, " ") {
+		t.Errorf("requests = %v, want %v", rt.paths, want)
 	}
 }

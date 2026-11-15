@@ -3,7 +3,9 @@ package terraform
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -23,12 +25,8 @@ type services struct {
 	providers string
 }
 
-// serviceURL returns the base URL of a service, read from the registry's
-// service discovery document at its host's /.well-known/terraform.json. A
-// registry without the document, or without an entry for the service,
-// serves the protocol at {base}/v1/modules/ and {base}/v1/providers/. The
-// document is read once; a failure to read it is returned and retried on
-// the next call.
+// serviceURL reads the discovery document once; a failure to read it is
+// returned and retried on the next call.
 func (r *Registry) serviceURL(ctx context.Context, service string) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -45,8 +43,21 @@ func (r *Registry) serviceURL(ctx context.Context, service string) (string, erro
 	return r.services.providers, nil
 }
 
+// refused reports whether a registry answered with a 4xx other than 429: it
+// doesn't serve what was asked for, as opposed to failing for now.
+func refused(err error) bool {
+	var httpErr *core.HTTPError
+	return errors.As(err, &httpErr) && httpErr.StatusCode >= 400 && httpErr.StatusCode < 500 &&
+		httpErr.StatusCode != http.StatusTooManyRequests
+}
+
 func (r *Registry) discover(ctx context.Context) (*services, error) {
 	found := &services{modules: r.baseURL + "/v1/modules/", providers: r.baseURL + "/v1/providers/"}
+	// registry.terraform.io serves these paths, and the PURL helpers build a
+	// Registry per call, so asking it would double every lookup.
+	if r.baseURL == DefaultURL {
+		return found, nil
+	}
 	base, err := url.Parse(r.baseURL)
 	if err != nil || base.Host == "" {
 		return found, nil //nolint:nilerr // a base URL without a host has no discovery document
@@ -57,7 +68,11 @@ func (r *Registry) discover(ctx context.Context) (*services, error) {
 	// redirects.
 	final, err := r.client.GetJSONWithFinalURL(ctx, document.String(), &entries)
 	if err != nil {
-		if httpErr, ok := err.(*core.HTTPError); ok && httpErr.IsNotFound() {
+		// A refusal, or a body that isn't a JSON object, such as an HTML
+		// page for any unknown path, means the host has no document.
+		var syntaxErr *json.SyntaxError
+		var typeErr *json.UnmarshalTypeError
+		if refused(err) || errors.As(err, &syntaxErr) || errors.As(err, &typeErr) {
 			return found, nil
 		}
 		return nil, fmt.Errorf("terraform service discovery: %w", err)

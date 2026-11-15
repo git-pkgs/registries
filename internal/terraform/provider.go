@@ -3,7 +3,6 @@ package terraform
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"net/url"
 	"sort"
 	"strings"
@@ -13,15 +12,6 @@ import (
 	"github.com/git-pkgs/registries/internal/urlparser"
 	"github.com/git-pkgs/vers"
 )
-
-// Providers are named namespace/type, as in a provider source address
-// without its hostname (hashicorp/random); modules have three segments.
-//
-// Only the Provider Registry Protocol's version list
-// (/v1/providers/{namespace}/{type}/versions) is served by every registry.
-// registry.terraform.io also serves the provider's details at
-// /v1/providers/{namespace}/{type}; others, such as registry.opentofu.org,
-// answer 404 there.
 
 // parseProviderName parses "namespace/type".
 func parseProviderName(name string) (namespace, typ string, ok bool) {
@@ -38,7 +28,6 @@ type providerResponse struct {
 	Version     string `json:"version"`
 	Description string `json:"description"`
 	Source      string `json:"source"`
-	PublishedAt string `json:"published_at"`
 	Downloads   int64  `json:"downloads"`
 	Tier        string `json:"tier"`
 }
@@ -66,6 +55,8 @@ func (r *Registry) providerURL(ctx context.Context, namespace, typ string) (stri
 	return providers + url.PathEscape(namespace) + "/" + url.PathEscape(typ), nil
 }
 
+// fetchProviderPackage reads registry.terraform.io's provider details; other
+// registries serve none, and the package comes from the version list.
 func (r *Registry) fetchProviderPackage(ctx context.Context, name, namespace, typ string) (*core.Package, error) {
 	providerURL, err := r.providerURL(ctx, namespace, typ)
 	if err != nil {
@@ -73,12 +64,8 @@ func (r *Registry) fetchProviderPackage(ctx context.Context, name, namespace, ty
 	}
 	var resp providerResponse
 	err = r.client.GetJSON(ctx, providerURL, &resp)
-	// The details endpoint is registry.terraform.io's extension of the
-	// protocol; a registry that refuses it in any way serves the version
-	// list.
-	if httpErr, ok := err.(*core.HTTPError); ok && httpErr.StatusCode >= 400 && httpErr.StatusCode < 500 &&
-		httpErr.StatusCode != http.StatusTooManyRequests {
-		return r.fetchProtocolProviderPackage(ctx, name, namespace)
+	if refused(err) {
+		return r.fetchProtocolProviderPackage(ctx, name, namespace, typ)
 	}
 	if err != nil {
 		return nil, err
@@ -99,8 +86,7 @@ func (r *Registry) fetchProviderPackage(ctx context.Context, name, namespace, ty
 
 // fetchProtocolProviderPackage describes a provider from its version list
 // alone, for registries that serve no details.
-func (r *Registry) fetchProtocolProviderPackage(ctx context.Context, name, namespace string) (*core.Package, error) {
-	typ := strings.TrimPrefix(name, namespace+"/")
+func (r *Registry) fetchProtocolProviderPackage(ctx context.Context, name, namespace, typ string) (*core.Package, error) {
 	versions, err := r.fetchProviderVersions(ctx, name, namespace, typ)
 	if err != nil {
 		return nil, err
