@@ -20,7 +20,7 @@ import (
 func TestSupportedEcosystems(t *testing.T) {
 	ecosystems := registries.SupportedEcosystems()
 
-	expected := []string{"apk", "apm", "brew", "cargo", "clojars", "cocoapods", "composer", "conda", "cpan", "cran", "deno", "dub", "elm", "gem", "githubactions", "golang", "hackage", "haxelib", "helm", "hex", "julia", "luarocks", "maven", "nimble", "npm", "nuget", "pub", "pypi", "swift", "terraform"}
+	expected := []string{"apk", "apm", "brew", "cargo", "clojars", "cocoapods", "composer", "conda", "cpan", "cran", "deno", "dub", "elm", "gem", "githubactions", "golang", "hackage", "haxelib", "helm", "hex", "julia", "luarocks", "maven", "nimble", "npm", "nuget", "pub", "pypi", "swift", "terraform", "vscode-extension"}
 	sort.Strings(ecosystems)
 
 	if len(ecosystems) != len(expected) {
@@ -65,6 +65,7 @@ func TestNew(t *testing.T) {
 		{"deno", false},
 		{"terraform", false},
 		{"githubactions", false},
+		{"vscode-extension", false},
 		{"helm", true},
 		{"swift", true},
 		{"apm", true},
@@ -113,6 +114,7 @@ func TestDefaultURL(t *testing.T) {
 		{"deno", "https://apiland.deno.dev"},
 		{"terraform", "https://registry.terraform.io"},
 		{"githubactions", "https://api.github.com"},
+		{"vscode-extension", "https://open-vsx.org"},
 		{"helm", ""},
 		{"swift", ""},
 		{"apm", ""},
