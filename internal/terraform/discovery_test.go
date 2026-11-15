@@ -113,3 +113,23 @@ func TestServiceDiscoveryRefusesOtherSchemes(t *testing.T) {
 		}
 	}
 }
+
+// Service URLs are relative to the document's final URL, after redirects.
+func TestServiceDiscoveryResolvesAgainstTheRedirectedDocument(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case discoveryPath:
+			http.Redirect(w, r, "/discovery/terraform.json", http.StatusFound)
+		case "/discovery/terraform.json":
+			_, _ = w.Write([]byte(`{"providers.v1": "./providers/"}`))
+		case "/discovery/providers/hashicorp/random/versions":
+			_, _ = w.Write([]byte(providerVersionsJSON))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	if versions, err := New(server.URL, core.DefaultClient()).FetchVersions(context.Background(), "hashicorp/random"); err != nil || len(versions) != 3 {
+		t.Errorf("versions = %v, %v; want 3", versions, err)
+	}
+}

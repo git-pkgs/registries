@@ -337,3 +337,24 @@ func TestStream(t *testing.T) {
 		t.Errorf("fn error: err = %v, want it returned as is", err)
 	}
 }
+
+// GetJSONWithFinalURL reports the URL the response came from, after redirects.
+func TestGetJSONWithFinalURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/start" {
+			http.Redirect(w, r, "/moved/doc.json", http.StatusFound)
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok": true}`))
+	}))
+	defer srv.Close()
+
+	var v struct{ OK bool }
+	final, err := DefaultClient().GetJSONWithFinalURL(context.Background(), srv.URL+"/start", &v)
+	if err != nil || !v.OK {
+		t.Fatalf("GetJSONWithFinalURL = %+v, %v", v, err)
+	}
+	if final == nil || final.Path != "/moved/doc.json" {
+		t.Errorf("final URL = %v, want /moved/doc.json", final)
+	}
+}

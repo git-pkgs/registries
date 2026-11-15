@@ -94,6 +94,27 @@ func TestFetchProviderPackageFromProtocolOnlyRegistry(t *testing.T) {
 	}
 }
 
+// The details endpoint is an extension of registry.terraform.io, not part
+// of the protocol, so any refusal of it, not only a 404, falls back to the
+// version list.
+func TestFetchProviderPackageFallsBackOnAnyRefusal(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/providers/hashicorp/random":
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		case "/v1/providers/hashicorp/random/versions":
+			_, _ = w.Write([]byte(providerVersionsJSON))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	pkg, err := New(server.URL, core.DefaultClient()).FetchPackage(context.Background(), "hashicorp/random")
+	if err != nil || pkg.LatestVersion != "3.10.0-beta1" {
+		t.Errorf("FetchPackage = %+v, %v; want the version list's latest", pkg, err)
+	}
+}
+
 func TestFetchProviderPackageNotFound(t *testing.T) {
 	server := providerServer(t, nil)
 	_, err := New(server.URL, core.DefaultClient()).FetchPackage(context.Background(), "hashicorp/missing")

@@ -53,7 +53,10 @@ func (r *Registry) discover(ctx context.Context) (*services, error) {
 	}
 	document := &url.URL{Scheme: base.Scheme, Host: base.Host, Path: discoveryPath}
 	var entries map[string]json.RawMessage
-	if err := r.client.GetJSON(ctx, document.String(), &entries); err != nil {
+	// Service URLs are relative to where the document was found, after
+	// redirects.
+	final, err := r.client.GetJSONWithFinalURL(ctx, document.String(), &entries)
+	if err != nil {
 		if httpErr, ok := err.(*core.HTTPError); ok && httpErr.IsNotFound() {
 			return found, nil
 		}
@@ -65,7 +68,7 @@ func (r *Registry) discover(ctx context.Context) (*services, error) {
 		if raw, ok := entries[service]; !ok || json.Unmarshal(raw, &location) != nil || location == "" {
 			continue
 		}
-		resolved, err := document.Parse(location)
+		resolved, err := final.Parse(location)
 		if err != nil || (resolved.Scheme != "https" && resolved.Scheme != "http") || resolved.Host == "" {
 			return nil, fmt.Errorf("terraform service discovery: %s is %q, not an http or https URL", service, location)
 		}

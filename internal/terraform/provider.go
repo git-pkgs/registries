@@ -3,6 +3,7 @@ package terraform
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"sort"
 	"strings"
@@ -72,7 +73,11 @@ func (r *Registry) fetchProviderPackage(ctx context.Context, name, namespace, ty
 	}
 	var resp providerResponse
 	err = r.client.GetJSON(ctx, providerURL, &resp)
-	if httpErr, ok := err.(*core.HTTPError); ok && httpErr.IsNotFound() {
+	// The details endpoint is registry.terraform.io's extension of the
+	// protocol; a registry that refuses it in any way serves the version
+	// list.
+	if httpErr, ok := err.(*core.HTTPError); ok && httpErr.StatusCode >= 400 && httpErr.StatusCode < 500 &&
+		httpErr.StatusCode != http.StatusTooManyRequests {
 		return r.fetchProtocolProviderPackage(ctx, name, namespace)
 	}
 	if err != nil {
