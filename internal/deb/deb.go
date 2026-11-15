@@ -188,16 +188,16 @@ func (r *Registry) index(ctx context.Context) (map[string][]record, error) {
 		seen[key] = true
 		packages[rec.name] = append(packages[rec.name], rec)
 	}
-	read := 0
+	// A suite without any index, misspelt or missing on a mirror for a
+	// moment, would otherwise be left out for the Registry's lifetime.
 	for _, suite := range r.suites {
 		n, err := r.readSuite(ctx, suite, add)
 		if err != nil {
 			return nil, err
 		}
-		read += n
-	}
-	if read == 0 {
-		return nil, fmt.Errorf("%w: under %s for suites %v", ErrNoIndex, r.archiveURL, r.suites)
+		if n == 0 {
+			return nil, fmt.Errorf("%w: under %s for suite %s", ErrNoIndex, r.archiveURL, suite)
+		}
 	}
 	for _, recs := range packages {
 		sort.SliceStable(recs, func(i, j int) bool {
