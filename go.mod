@@ -12,6 +12,7 @@ require (
 	github.com/git-pkgs/purl v0.2.1
 	github.com/git-pkgs/spdx v0.3.6
 	github.com/git-pkgs/vers v0.7.2
+	github.com/klauspost/compress v1.20.3
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/rs/dnscache v0.0.0-20230804202142-fc85eb664529
 	github.com/rubyist/circuitbreaker v2.2.1+incompatible
