@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/git-pkgs/registries/internal/core"
 	"github.com/git-pkgs/registries/internal/urlparser"
@@ -29,6 +30,9 @@ type Registry struct {
 	baseURL string
 	client  *core.Client
 	urls    *URLs
+
+	mu       sync.Mutex
+	services *services
 }
 
 func New(baseURL string, client *core.Client) *Registry {
@@ -119,7 +123,11 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 		return nil, errInvalidName
 	}
 
-	url := fmt.Sprintf("%s/v1/modules/%s/%s/%s", r.baseURL, namespace, moduleName, provider)
+	modules, err := r.serviceURL(ctx, modulesService)
+	if err != nil {
+		return nil, err
+	}
+	url := fmt.Sprintf("%s%s/%s/%s", modules, namespace, moduleName, provider)
 
 	var resp moduleResponse
 	if err := r.client.GetJSON(ctx, url, &resp); err != nil {
@@ -155,7 +163,11 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 		return nil, errInvalidName
 	}
 
-	url := fmt.Sprintf("%s/v1/modules/%s/%s/%s/versions", r.baseURL, namespace, moduleName, provider)
+	modules, err := r.serviceURL(ctx, modulesService)
+	if err != nil {
+		return nil, err
+	}
+	url := fmt.Sprintf("%s%s/%s/%s/versions", modules, namespace, moduleName, provider)
 
 	var resp moduleVersionsResponse
 	if err := r.client.GetJSON(ctx, url, &resp); err != nil {
@@ -194,7 +206,11 @@ func (r *Registry) FetchDependencies(ctx context.Context, name, version string) 
 		return nil, errInvalidName
 	}
 
-	url := fmt.Sprintf("%s/v1/modules/%s/%s/%s/%s", r.baseURL, namespace, moduleName, provider, version)
+	modules, err := r.serviceURL(ctx, modulesService)
+	if err != nil {
+		return nil, err
+	}
+	url := fmt.Sprintf("%s%s/%s/%s/%s", modules, namespace, moduleName, provider, version)
 
 	var resp versionEntry
 	if err := r.client.GetJSON(ctx, url, &resp); err != nil {

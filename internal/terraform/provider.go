@@ -57,13 +57,21 @@ type providerPlatform struct {
 	Arch string `json:"arch"`
 }
 
-func (r *Registry) providerURL(namespace, typ string) string {
-	return fmt.Sprintf("%s/v1/providers/%s/%s", r.baseURL, url.PathEscape(namespace), url.PathEscape(typ))
+func (r *Registry) providerURL(ctx context.Context, namespace, typ string) (string, error) {
+	providers, err := r.serviceURL(ctx, providersService)
+	if err != nil {
+		return "", err
+	}
+	return providers + url.PathEscape(namespace) + "/" + url.PathEscape(typ), nil
 }
 
 func (r *Registry) fetchProviderPackage(ctx context.Context, name, namespace, typ string) (*core.Package, error) {
+	providerURL, err := r.providerURL(ctx, namespace, typ)
+	if err != nil {
+		return nil, err
+	}
 	var resp providerResponse
-	err := r.client.GetJSON(ctx, r.providerURL(namespace, typ), &resp)
+	err = r.client.GetJSON(ctx, providerURL, &resp)
 	if httpErr, ok := err.(*core.HTTPError); ok && httpErr.IsNotFound() {
 		return r.fetchProtocolProviderPackage(ctx, name, namespace)
 	}
@@ -100,8 +108,12 @@ func (r *Registry) fetchProtocolProviderPackage(ctx context.Context, name, names
 }
 
 func (r *Registry) fetchProviderVersions(ctx context.Context, name, namespace, typ string) ([]core.Version, error) {
+	providerURL, err := r.providerURL(ctx, namespace, typ)
+	if err != nil {
+		return nil, err
+	}
 	var resp providerVersionsResponse
-	if err := r.client.GetJSON(ctx, r.providerURL(namespace, typ)+"/versions", &resp); err != nil {
+	if err := r.client.GetJSON(ctx, providerURL+"/versions", &resp); err != nil {
 		if httpErr, ok := err.(*core.HTTPError); ok && httpErr.IsNotFound() {
 			return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name}
 		}
