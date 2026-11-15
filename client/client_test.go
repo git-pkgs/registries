@@ -293,3 +293,47 @@ func TestHeadRetriesAndRateLimits(t *testing.T) {
 		t.Errorf("rate limiter waits = %d, want 3", limiter.waits)
 	}
 }
+
+func TestStream(t *testing.T) {
+	const doc = "Package: curl\nVersion: 7.88.1-10\n"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/missing" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(doc))
+	}))
+	defer srv.Close()
+
+	readAll := func(c *Client, url string) (string, error) {
+		var got []byte
+		err := c.Stream(context.Background(), url, func(r io.Reader) error {
+			var err error
+			got, err = io.ReadAll(r)
+			return err
+		})
+		return string(got), err
+	}
+
+	got, err := readAll(NewClient(WithMaxResponseSize(10), WithMaxRetries(0)), srv.URL)
+	if err != nil || got != doc {
+		t.Errorf("Stream = %q, %v; the buffered limit should not apply", got, err)
+	}
+	if _, err := readAll(NewClient(WithMaxStreamSize(int64(len(doc)-1)), WithMaxRetries(0)), srv.URL); !errors.Is(err, ErrResponseTooLarge) {
+		t.Errorf("over the stream limit: err = %v, want ErrResponseTooLarge", err)
+	}
+	if got, err := readAll(NewClient(WithMaxStreamSize(int64(len(doc))), WithMaxRetries(0)), srv.URL); err != nil || got != doc {
+		t.Errorf("at the stream limit: %q, %v", got, err)
+	}
+
+	var httpErr *HTTPError
+	_, err = readAll(NewClient(WithMaxRetries(0)), srv.URL+"/missing")
+	if !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusNotFound {
+		t.Errorf("missing: err = %v, want a 404 HTTPError", err)
+	}
+
+	sentinel := errors.New("stop")
+	if err := NewClient().Stream(context.Background(), srv.URL, func(io.Reader) error { return sentinel }); !errors.Is(err, sentinel) {
+		t.Errorf("fn error: err = %v, want it returned as is", err)
+	}
+}

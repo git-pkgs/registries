@@ -113,14 +113,24 @@ type ResolveOptions struct {
 	Integrity string
 	// Qualifiers are PURL qualifiers. Those in selectionQualifiers pick among
 	// the artifacts a registry lists for a version; an artifact that does not
-	// record a qualifier is not ruled out by it. repository_url and channel
+	// record a qualifier is not ruled out by it. An artifact whose platform is
+	// universal, or ruby for a gem, serves any platform, after one built for
+	// the platform asked for. repository_url and channel
 	// choose the registry, which is up to the caller, and are ignored here.
 	Qualifiers map[string]string
 }
 
 // selectionQualifiers are the PURL qualifiers matched against artifact
 // metadata of the same name.
-var selectionQualifiers = []string{"arch", "distro", "subdir", "build"}
+var selectionQualifiers = []string{"arch", "distro", "subdir", "build", qualifierPlatform}
+
+const (
+	qualifierPlatform = "platform"
+	// universalPlatform is the platform of a build that runs on every one.
+	universalPlatform = "universal"
+	// rubyPlatform is RubyGems' universal platform: a gem built for none installs on any.
+	rubyPlatform = "ruby"
+)
 
 func (o ResolveOptions) hasSelectionQualifier() bool {
 	for _, key := range selectionQualifiers {
@@ -166,7 +176,15 @@ func (r *Resolver) ResolveWithOptions(
 	}
 
 	// For ecosystems like PyPI, we need to fetch metadata to get the URL
-	return r.resolveFromMetadata(ctx, reg, name, version, options)
+	info, err := r.resolveFromMetadata(ctx, reg, name, version, options)
+	if (errors.Is(err, ErrNoDownloadURL) || errors.Is(err, ErrNotFound)) && options.hasSelectionQualifier() {
+		// The registry lists no artifacts to pick among, or doesn't list
+		// the version, so the built URL is the only one there is.
+		if url := reg.URLs().Download(name, version); url != "" {
+			return matchSingleArtifact(&ArtifactInfo{URL: url, Filename: filenameFromURL(url)}, options, nil)
+		}
+	}
+	return info, err
 }
 
 // resolveWithoutRegistry handles ecosystems with predictable URLs
@@ -274,6 +292,27 @@ func (r *Resolver) resolveFromMetadata(
 }
 
 func (r *Resolver) selectArtifact(ctx context.Context, candidates []registries.Artifact, options ResolveOptions) (*ArtifactInfo, error) {
+	// A build for the requested platform wins over a universal one, so
+	// universal builds are only let in on a second pass.
+	universal := []bool{false}
+	if options.Qualifiers[qualifierPlatform] != "" {
+		universal = []bool{false, true}
+	}
+	for _, allowUniversal := range universal {
+		info, err := r.selectArtifactPass(ctx, candidates, options, allowUniversal)
+		if err != nil || info != nil {
+			return info, err
+		}
+	}
+	return nil, ErrNoMatchingArtifact
+}
+
+func (r *Resolver) selectArtifactPass(
+	ctx context.Context,
+	candidates []registries.Artifact,
+	options ResolveOptions,
+	allowUniversal bool,
+) (*ArtifactInfo, error) {
 	for _, candidate := range candidates {
 		filename := candidate.Filename
 		if filename == "" {
@@ -285,7 +324,7 @@ func (r *Resolver) selectArtifact(ctx context.Context, candidates []registries.A
 		if options.Integrity != "" && !integrityMatches(candidate.Integrity, options.Integrity) {
 			continue
 		}
-		if !qualifiersMatch(candidate.Metadata, options.Qualifiers) {
+		if !qualifiersMatch(candidate.Metadata, options.Qualifiers, allowUniversal) {
 			continue
 		}
 		if err := r.checkMetadataURL(ctx, candidate.URL); err != nil {
@@ -298,18 +337,23 @@ func (r *Resolver) selectArtifact(ctx context.Context, candidates []registries.A
 			Size:      candidate.Size,
 		}, nil
 	}
-	return nil, ErrNoMatchingArtifact
+	return nil, nil
 }
 
-func qualifiersMatch(metadata map[string]any, qualifiers map[string]string) bool {
+func qualifiersMatch(metadata map[string]any, qualifiers map[string]string, allowUniversal bool) bool {
 	for _, key := range selectionQualifiers {
 		want := qualifiers[key]
 		if want == "" {
 			continue
 		}
-		if got, ok := metadata[key].(string); ok && got != "" && got != want {
-			return false
+		got, ok := metadata[key].(string)
+		if !ok || got == "" || got == want {
+			continue
 		}
+		if key == qualifierPlatform && (got == universalPlatform || got == rubyPlatform) && allowUniversal {
+			continue
+		}
+		return false
 	}
 	return true
 }
