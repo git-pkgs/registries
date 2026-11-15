@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/git-pkgs/registries/internal/core"
@@ -140,6 +141,12 @@ func TestFetchVersions(t *testing.T) {
 				Licenses:  []string{"MIT"},
 				SHA:       "3fa37b0c3b5744af45f9da3e4ae9cbd89480b35e12ae36b5e87a0452e0b38335",
 			},
+			{
+				Number:    "1.13.5",
+				Platform:  "java",
+				CreatedAt: "2022-04-12T10:00:00.000Z",
+				SHA:       "0b0e5b2c9f1c8e9d3b5a0c7a6f4e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e",
+			},
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -157,14 +164,34 @@ func TestFetchVersions(t *testing.T) {
 		t.Fatalf("expected 2 versions, got %d", len(versions))
 	}
 
-	if versions[0].Number != "1.13.6" {
-		t.Errorf("expected version '1.13.6', got %q", versions[0].Number)
-	}
-	if versions[1].Number != "1.13.6-x86_64-linux" {
-		t.Errorf("expected version '1.13.6-x86_64-linux', got %q", versions[1].Number)
+	if versions[0].Number != "1.13.6" || versions[1].Number != "1.13.5" {
+		t.Errorf("versions = %q, %q; want 1.13.6, 1.13.5", versions[0].Number, versions[1].Number)
 	}
 	if versions[0].Integrity != "sha256-b1512fdc0aba446e1ee30de3e0671518eb363e75fab53486e99e8891d44b8587" {
 		t.Errorf("unexpected integrity: %q", versions[0].Integrity)
+	}
+
+	type build struct{ filename, platform, integrity string }
+	builds := func(v core.Version) []build {
+		var out []build
+		for _, a := range v.Artifacts {
+			if a.URL != server.URL+"/downloads/"+a.Filename {
+				t.Errorf("artifact URL %q for %s", a.URL, a.Filename)
+			}
+			out = append(out, build{a.Filename, a.Metadata["platform"].(string), a.Integrity})
+		}
+		return out
+	}
+	want := []build{
+		{"nokogiri-1.13.6.gem", "ruby", "sha256-b1512fdc0aba446e1ee30de3e0671518eb363e75fab53486e99e8891d44b8587"},
+		{"nokogiri-1.13.6-x86_64-linux.gem", "x86_64-linux", "sha256-3fa37b0c3b5744af45f9da3e4ae9cbd89480b35e12ae36b5e87a0452e0b38335"},
+	}
+	if got := builds(versions[0]); !reflect.DeepEqual(got, want) {
+		t.Errorf("1.13.6 artifacts = %+v, want %+v", got, want)
+	}
+	want = []build{{"nokogiri-1.13.5-java.gem", "java", "sha256-0b0e5b2c9f1c8e9d3b5a0c7a6f4e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e"}}
+	if got := builds(versions[1]); !reflect.DeepEqual(got, want) {
+		t.Errorf("1.13.5 artifacts = %+v, want %+v", got, want)
 	}
 }
 
