@@ -43,7 +43,8 @@ type Client struct {
 	RateLimiter RateLimiter
 	// MaxResponseSize limits buffered bodies; zero means 10 MiB.
 	MaxResponseSize int64
-	// MaxStreamSize limits bodies read through StreamJSON; zero means 512 MiB.
+	// MaxStreamSize limits bodies read through Stream and StreamJSON; zero
+	// means 512 MiB.
 	MaxStreamSize int64
 }
 
@@ -366,7 +367,8 @@ func WithMaxResponseSize(n int64) Option {
 	}
 }
 
-// WithMaxStreamSize sets the limit for bodies read through StreamJSON.
+// WithMaxStreamSize sets the limit for bodies read through Stream and
+// StreamJSON.
 func WithMaxStreamSize(n int64) Option {
 	return func(c *Client) {
 		c.MaxStreamSize = n

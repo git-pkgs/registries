@@ -410,6 +410,33 @@ func TestNoIndexFound(t *testing.T) {
 	}
 }
 
+// A configured suite that yields no index, misspelt or briefly missing on a
+// mirror, fails the read rather than leaving its packages out for the
+// Registry's lifetime.
+func TestSuiteWithoutIndexFails(t *testing.T) {
+	a := newArchive(t)
+	a.index("bookworm", "main/binary-amd64", "Packages.xz", bookwormAMD64)
+	a.release("bookworm", "bookworm", true)
+	base := a.server().URL + "/debian"
+
+	r := newRegistry(base, "suites=bookworm,bookworm-updates&architectures=amd64")
+	_, err := r.FetchVersions(context.Background(), "curl")
+	if !errors.Is(err, ErrNoIndex) {
+		t.Fatalf("err = %v, want ErrNoIndex", err)
+	}
+	if !strings.Contains(err.Error(), "bookworm-updates") {
+		t.Errorf("err = %v, want it to name bookworm-updates", err)
+	}
+	// Nothing was kept, so the suite is read once the mirror has it.
+	a.mu.Lock()
+	a.index("bookworm-updates", "main/binary-amd64", "Packages.xz", bookwormAMD64)
+	a.release("bookworm-updates", "bookworm", true)
+	a.mu.Unlock()
+	if _, err := r.FetchVersions(context.Background(), "curl"); err != nil {
+		t.Errorf("FetchVersions after the suite appeared: %v", err)
+	}
+}
+
 func TestNotFound(t *testing.T) {
 	_, base := standard(t)
 	r := newRegistry(base, "suites=bookworm&architectures=amd64")
