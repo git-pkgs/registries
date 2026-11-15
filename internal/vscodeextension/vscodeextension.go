@@ -220,7 +220,10 @@ func (r *Registry) query(ctx context.Context, name, version string) ([]extension
 		params.Set("extensionVersion", version)
 	}
 	var builds []extension
-	for {
+	for page := 1; ; page++ {
+		if page > core.MaxPages {
+			return nil, fmt.Errorf("%w: %s builds", core.ErrTooManyPages, name)
+		}
 		params.Set("offset", strconv.Itoa(len(builds)))
 		var page queryResponse
 		if err := r.client.GetJSON(ctx, r.baseURL+"/api/v2/-/query?"+params.Encode(), &page); err != nil {
@@ -283,9 +286,9 @@ func versions(name string, builds []extension) ([]core.Version, error) {
 				URL:      download,
 				Filename: filename(download),
 				Metadata: map[string]any{
-					"target_platform": b.TargetPlatform,
-					"signature":       b.Files["signature"],
-					"sha256":          b.Files["sha256"],
+					"platform":  b.TargetPlatform,
+					"signature": b.Files["signature"],
+					"sha256":    b.Files["sha256"],
 				},
 			})
 		}

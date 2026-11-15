@@ -210,9 +210,9 @@ func TestFetchVersions(t *testing.T) {
 			URL:      base + file + ".vsix",
 			Filename: file + ".vsix",
 			Metadata: map[string]any{
-				"target_platform": platform,
-				"signature":       base + file + ".sigzip",
-				"sha256":          base + file + ".sha256",
+				"platform":  platform,
+				"signature": base + file + ".sigzip",
+				"sha256":    base + file + ".sha256",
 			},
 		}
 	}
@@ -275,6 +275,21 @@ func TestFetchVersionsStopsAtAnEmptyPage(t *testing.T) {
 	}
 }
 
+// A server that ignores offset and reports a large totalSize answers the same
+// page for ever, so the listing gives up at core.MaxPages.
+func TestFetchVersionsStopsAtMaxPages(t *testing.T) {
+	reg, requests := newTestRegistry(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(queryPage(1<<30, 0, csharpEntry("2.110.4", "universal", "2025-01-02T03:04:05Z", false))))
+	})
+	_, err := reg.FetchVersions(context.Background(), "muhammad-sammy/csharp")
+	if !errors.Is(err, core.ErrTooManyPages) {
+		t.Errorf("err = %v, want ErrTooManyPages", err)
+	}
+	if got := requests.Load(); got != core.MaxPages {
+		t.Errorf("made %d requests, want %d", got, core.MaxPages)
+	}
+}
+
 func TestFetchVersionsRejectsBadEntries(t *testing.T) {
 	for _, tt := range []struct {
 		name    string
@@ -315,7 +330,7 @@ func TestFetchVersion(t *testing.T) {
 	}
 	var platforms []string
 	for _, a := range version.Artifacts {
-		platforms = append(platforms, a.Metadata["target_platform"].(string))
+		platforms = append(platforms, a.Metadata["platform"].(string))
 	}
 	if version.Number != "2.160.9" || !reflect.DeepEqual(platforms, []string{"linux-x64", "win32-x64"}) {
 		t.Errorf("FetchVersion = %s with %v, want 2.160.9 with linux-x64 and win32-x64", version.Number, platforms)
