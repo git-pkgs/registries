@@ -43,7 +43,8 @@ type Client struct {
 	RateLimiter RateLimiter
 	// MaxResponseSize limits buffered bodies; zero means 10 MiB.
 	MaxResponseSize int64
-	// MaxStreamSize limits bodies read through StreamJSON; zero means 512 MiB.
+	// MaxStreamSize limits bodies read through Stream and StreamJSON; zero
+	// means 512 MiB.
 	MaxStreamSize int64
 }
 
@@ -119,6 +120,20 @@ func (c *Client) StreamJSON(ctx context.Context, url string, fn func(*json.Decod
 		return errors.New("unexpected data after JSON document")
 	}
 	return nil
+}
+
+// Stream fetches a URL and passes the response body to fn, for large bodies
+// that are not JSON, such as compressed indexes. Bodies are limited to
+// MaxStreamSize: reading past it fails with ErrResponseTooLarge. Retries
+// cover getting a response; an error from fn is returned as is.
+func (c *Client) Stream(ctx context.Context, url string, fn func(io.Reader) error) error {
+	resp, _, err := c.open(ctx, http.MethodGet, url, nil, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	limit := c.maxStreamSize()
+	return fn(&limitedReader{r: resp.Body, remaining: limit, limit: limit, url: url})
 }
 
 func (c *Client) maxResponseSize() int64 {
@@ -352,7 +367,8 @@ func WithMaxResponseSize(n int64) Option {
 	}
 }
 
-// WithMaxStreamSize sets the limit for bodies read through StreamJSON.
+// WithMaxStreamSize sets the limit for bodies read through Stream and
+// StreamJSON.
 func WithMaxStreamSize(n int64) Option {
 	return func(c *Client) {
 		c.MaxStreamSize = n
