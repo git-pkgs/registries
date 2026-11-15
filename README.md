@@ -570,7 +570,7 @@ info, err := resolver.Resolve(ctx, "cargo", "serde", "1.0.0")
 // info.Integrity may be populated for metadata-resolved URLs
 ```
 
-When a version has several files, `ResolveWithOptions` picks one by PURL qualifiers. `arch`, `distro`, `subdir`, `build` and `platform` are matched against artifact metadata, and an artifact that doesn't record a qualifier isn't ruled out by it. An artifact whose `platform` is `universal` matches any requested platform, after one built for that platform. When a registry lists no artifacts for the version, the URL from `URLs().Download` is returned. `repository_url` and `channel` are ignored: register a registry for that URL instead.
+When a version has several files, `ResolveWithOptions` picks one by PURL qualifiers. `arch`, `distro`, `subdir`, `build` and `platform` are matched against artifact metadata, and an artifact that doesn't record a qualifier isn't ruled out by it. An artifact whose `platform` is `universal` matches any requested platform, after one built for that platform. When a registry lists no artifacts for the version, or doesn't list the version, the URL from `URLs().Download` is returned. `repository_url` and `channel` are ignored: register a registry for that URL instead.
 
 ```go
 info, err := resolver.ResolveWithOptions(ctx, "conda", "zlib", "1.3.1", fetch.ResolveOptions{

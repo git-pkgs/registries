@@ -175,9 +175,10 @@ func (r *Resolver) ResolveWithOptions(
 
 	// For ecosystems like PyPI, we need to fetch metadata to get the URL
 	info, err := r.resolveFromMetadata(ctx, reg, name, version, options)
-	if errors.Is(err, ErrNoDownloadURL) && options.hasSelectionQualifier() {
-		// The registry lists no artifacts to pick among, so the built
-		// URL is the only one there is.
+	if (errors.Is(err, ErrNoDownloadURL) || errors.Is(err, ErrNotFound)) && options.hasSelectionQualifier() {
+		// The registry lists no artifacts to pick among, or lists the
+		// version under another number as RubyGems does for a platform
+		// build, so the built URL is the only one there is.
 		if url := reg.URLs().Download(name, version); url != "" {
 			return matchSingleArtifact(&ArtifactInfo{URL: url, Filename: filenameFromURL(url)}, options, nil)
 		}

@@ -95,18 +95,39 @@ func (f *urlOnlyRegistry) URLs() client.URLBuilder { //nolint:ireturn // satisfy
 }
 
 // A registry that lists no artifacts, such as RubyGems, has nothing to match
-// a selection qualifier against, so its built URL is still the answer.
+// a selection qualifier against, so its built URL is still the answer. That
+// also holds where it lists the version under another number: RubyGems
+// lists a platform build as 1.0.0-java.
 func TestResolveSelectionQualifierWithoutArtifactsUsesTheBuiltURL(t *testing.T) {
-	r := NewResolver()
-	r.RegisterRegistry(&urlOnlyRegistry{fakeRegistry{versions: []registries.Version{{Number: "1.0.0"}}}})
+	for name, listed := range map[string]string{"listed": "1.0.0", "listed with its platform": "1.0.0-java"} {
+		t.Run(name, func(t *testing.T) {
+			r := NewResolver()
+			r.RegisterRegistry(&urlOnlyRegistry{fakeRegistry{versions: []registries.Version{{Number: listed}}}})
 
-	info, err := r.ResolveWithOptions(context.Background(), "fake", "pkg", "1.0.0",
-		ResolveOptions{Qualifiers: map[string]string{"platform": "java"}})
-	if err != nil {
-		t.Fatalf("Resolve failed: %v", err)
+			info, err := r.ResolveWithOptions(context.Background(), "fake", "pkg", "1.0.0",
+				ResolveOptions{Qualifiers: map[string]string{"platform": "java"}})
+			if err != nil {
+				t.Fatalf("Resolve failed: %v", err)
+			}
+			if want := "https://example.com/downloads/pkg-1.0.0.gem"; info.URL != want {
+				t.Errorf("URL = %q, want %q", info.URL, want)
+			}
+		})
 	}
-	if want := "https://example.com/downloads/pkg-1.0.0.gem"; info.URL != want {
-		t.Errorf("URL = %q, want %q", info.URL, want)
+}
+
+// A version that lists artifacts and has none for the qualifier is an error,
+// not the built URL.
+func TestResolveSelectionQualifierWithoutMatchDoesNotUseTheBuiltURL(t *testing.T) {
+	r := NewResolver()
+	r.RegisterRegistry(&urlOnlyRegistry{fakeRegistry{versions: []registries.Version{{
+		Number:    "1.0.0",
+		Artifacts: []registries.Artifact{{URL: "https://example.com/pkg-1.0.0-linux.bin", Metadata: map[string]any{"platform": "linux-x64"}}},
+	}}}})
+	_, err := r.ResolveWithOptions(context.Background(), "fake", "pkg", "1.0.0",
+		ResolveOptions{Qualifiers: map[string]string{"platform": "win32-x64"}})
+	if !errors.Is(err, ErrNoMatchingArtifact) {
+		t.Errorf("err = %v, want ErrNoMatchingArtifact", err)
 	}
 }
 
