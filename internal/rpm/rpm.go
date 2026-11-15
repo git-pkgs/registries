@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/url"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -104,7 +105,7 @@ func New(baseURL string, client *core.Client) *Registry {
 	// As a PURL's repository_url carries it: the repository with the
 	// distro it was configured with.
 	if r.distro != "" {
-		r.urls.repositoryURL += "?distro=" + r.distro
+		r.urls.repositoryURL += "?" + url.Values{"distro": {r.distro}}.Encode()
 	}
 	return r
 }
@@ -379,16 +380,30 @@ type xmlPackage struct {
 // package.
 func parsePrimary(r io.Reader, fn func(record)) error {
 	dec := xml.NewDecoder(r)
+	// An empty response, or another document, is no empty repository.
+	root := false
 	for {
 		tok, err := dec.Token()
 		if err == io.EOF {
+			if !root {
+				return fmt.Errorf("%w: primary.xml: no metadata element", ErrMalformedMetadata)
+			}
 			return nil
 		}
 		if err != nil {
 			return fmt.Errorf("%w: primary.xml: %w", ErrMalformedMetadata, err)
 		}
 		start, ok := tok.(xml.StartElement)
-		if !ok || start.Name.Local != "package" {
+		if !ok {
+			continue
+		}
+		if !root {
+			if start.Name.Local != "metadata" {
+				return fmt.Errorf("%w: primary.xml: root element %q, want metadata", ErrMalformedMetadata, start.Name.Local)
+			}
+			root = true
+		}
+		if start.Name.Local != "package" {
 			continue
 		}
 		var pkg xmlPackage
@@ -431,22 +446,34 @@ func (pkg *xmlPackage) record() record {
 	if pkg.Location.Base == "" && safeHref(pkg.Location.Href) {
 		rec.href = pkg.Location.Href
 	}
-	seen := map[string]bool{}
+	// Every constraint on a package holds, so each is kept; only an identical
+	// requirement is listed once.
+	seen := map[core.Dependency]bool{}
 	for _, req := range pkg.Format.Requires {
 		// File paths, sonames and capabilities such as rpmlib(...) name no
-		// package.
-		if req.Name == "" || strings.HasPrefix(req.Name, "/") || strings.Contains(req.Name, "(") || seen[req.Name] {
+		// package. A virtual capability such as webserver reads like a
+		// package name and is listed as one.
+		if req.Name == "" || strings.HasPrefix(req.Name, "/") || strings.Contains(req.Name, "(") ||
+			sonamePattern.MatchString(req.Name) {
 			continue
 		}
-		seen[req.Name] = true
-		rec.requires = append(rec.requires, core.Dependency{
+		dep := core.Dependency{
 			Name:         req.Name,
 			Requirements: requirement(req.Flags, req.Epoch, req.Ver, req.Rel),
 			Scope:        core.Runtime,
-		})
+		}
+		if seen[dep] {
+			continue
+		}
+		seen[dep] = true
+		rec.requires = append(rec.requires, dep)
 	}
 	return rec
 }
+
+// sonamePattern matches a soname written without its symbol version or
+// word size, such as libfoo.so.1 in a 32-bit package.
+var sonamePattern = regexp.MustCompile(`\.so(\.[0-9]+)*$`)
 
 // evr joins an epoch, version and release, leaving out an epoch of 0 and
 // an empty release.

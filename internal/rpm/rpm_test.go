@@ -631,6 +631,68 @@ func TestPURLRoundTrip(t *testing.T) {
 	}
 }
 
+// A distro with characters a query escapes survives the round trip.
+func TestPURLRoundTripEscapedDistro(t *testing.T) {
+	_, base := newRepo(t, ".zst", primaryXML)
+	r := New(base+"?distro=custom%2Bstable", core.DefaultClient())
+	reg, name, _, err := core.NewFromPURL(r.URLs().PURL("fedora/curl", "8.15.0-4.fc43"), core.DefaultClient())
+	if err != nil {
+		t.Fatalf("NewFromPURL: %v", err)
+	}
+	versions, err := reg.FetchVersions(context.Background(), name)
+	if err != nil || len(versions) == 0 || versions[0].Artifacts[0].Metadata["distro"] != "custom+stable" {
+		t.Errorf("FetchVersions = %+v, %v; want distro custom+stable", versions, err)
+	}
+}
+
+// Requirements on one package with different constraints are all kept, as
+// RPM requires all of them; an identical one is listed once. A bare soname
+// names no package.
+func TestFetchDependenciesKeepsEveryConstraint(t *testing.T) {
+	_, base := newRepo(t, ".gz", `<metadata xmlns:rpm="http://linux.duke.edu/metadata/rpm"><package type="rpm">
+  <name>tool</name><arch>x86_64</arch><version epoch="0" ver="1.0" rel="1"/>
+  <location href="Packages/t/tool-1.0-1.x86_64.rpm"/>
+  <format><rpm:requires>
+    <rpm:entry name="zlib" flags="GE" epoch="0" ver="1.2.13"/>
+    <rpm:entry name="zlib" flags="LT" epoch="0" ver="2"/>
+    <rpm:entry name="zlib" flags="GE" epoch="0" ver="1.2.13"/>
+    <rpm:entry name="libfoo.so.1"/>
+    <rpm:entry name="libbar.so"/>
+  </rpm:requires></format>
+</package></metadata>`)
+	deps, err := New(base, core.DefaultClient()).FetchDependencies(context.Background(), "tool", "1.0-1")
+	if err != nil {
+		t.Fatalf("FetchDependencies: %v", err)
+	}
+	want := []core.Dependency{
+		{Name: "zlib", Requirements: ">= 1.2.13", Scope: core.Runtime},
+		{Name: "zlib", Requirements: "< 2", Scope: core.Runtime},
+	}
+	if !reflect.DeepEqual(deps, want) {
+		t.Errorf("deps =\n %+v\nwant\n %+v", deps, want)
+	}
+}
+
+// An empty response, or a document that isn't repository metadata, is not
+// an empty repository: caching it would hide every package until restart.
+func TestPrimaryNeedsAMetadataRoot(t *testing.T) {
+	for name, body := range map[string]string{"empty": "", "whitespace": " \n", "other root": `<repomd></repomd>`} {
+		t.Run(name, func(t *testing.T) {
+			_, base := newRepo(t, "", body)
+			_, err := New(base, core.DefaultClient()).FetchVersions(context.Background(), "curl")
+			if !errors.Is(err, ErrMalformedMetadata) {
+				t.Errorf("err = %v, want ErrMalformedMetadata", err)
+			}
+		})
+	}
+	_, base := newRepo(t, "", `<?xml version="1.0"?><metadata packages="0"></metadata>`)
+	_, err := New(base, core.DefaultClient()).FetchVersions(context.Background(), "curl")
+	var notFound *core.NotFoundError
+	if !errors.As(err, &notFound) {
+		t.Errorf("empty metadata: err = %v, want NotFoundError", err)
+	}
+}
+
 // The metadata is read once per Registry.
 func TestMetadataReadOnce(t *testing.T) {
 	rp, base := newRepo(t, ".zst", primaryXML)
