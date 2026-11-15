@@ -14,6 +14,8 @@ import (
 const (
 	DefaultURL = "https://rubygems.org"
 	ecosystem  = "gem"
+	// rubyPlatform is the platform of a gem not built for any one, which installs on all of them.
+	rubyPlatform = "ruby"
 )
 
 func init() {
@@ -144,16 +146,14 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 		return nil, err
 	}
 
-	versions := make([]core.Version, len(resp))
-	for i, v := range resp {
+	// Each platform build of a number is an artifact of that version, as Open VSX
+	// builds are; the version's own fields come from the ruby build when there is one.
+	var versions []core.Version
+	index := make(map[string]int)
+	for _, v := range resp {
 		var publishedAt time.Time
 		if v.CreatedAt != "" {
 			publishedAt, _ = time.Parse(time.RFC3339, v.CreatedAt)
-		}
-
-		number := v.Number
-		if v.Platform != "" && v.Platform != "ruby" {
-			number = fmt.Sprintf("%s-%s", v.Number, v.Platform)
 		}
 
 		var integrity string
@@ -161,8 +161,17 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 			integrity = "sha256-" + v.SHA
 		}
 
-		versions[i] = core.Version{
-			Number:      number,
+		platform := v.Platform
+		if platform == "" {
+			platform = rubyPlatform
+		}
+		file := fmt.Sprintf("%s-%s.gem", name, v.Number)
+		if platform != rubyPlatform {
+			file = fmt.Sprintf("%s-%s-%s.gem", name, v.Number, platform)
+		}
+
+		version := core.Version{
+			Number:      v.Number,
 			PublishedAt: publishedAt,
 			Licenses:    strings.Join(v.Licenses, ","),
 			Integrity:   integrity,
@@ -174,6 +183,21 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 				"prerelease":       v.Prerelease,
 			},
 		}
+		i, ok := index[v.Number]
+		if !ok {
+			i = len(versions)
+			index[v.Number] = i
+			versions = append(versions, version)
+		} else if platform == rubyPlatform {
+			version.Artifacts = versions[i].Artifacts
+			versions[i] = version
+		}
+		versions[i].Artifacts = append(versions[i].Artifacts, core.Artifact{
+			URL:       fmt.Sprintf("%s/downloads/%s", r.baseURL, file),
+			Filename:  file,
+			Integrity: integrity,
+			Metadata:  map[string]any{"platform": platform},
+		})
 	}
 
 	return versions, nil

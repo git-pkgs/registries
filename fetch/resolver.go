@@ -114,8 +114,8 @@ type ResolveOptions struct {
 	// Qualifiers are PURL qualifiers. Those in selectionQualifiers pick among
 	// the artifacts a registry lists for a version; an artifact that does not
 	// record a qualifier is not ruled out by it. An artifact whose platform is
-	// universal serves any platform, after one built for the platform asked
-	// for. repository_url and channel
+	// universal, or ruby for a gem, serves any platform, after one built for
+	// the platform asked for. repository_url and channel
 	// choose the registry, which is up to the caller, and are ignored here.
 	Qualifiers map[string]string
 }
@@ -128,6 +128,8 @@ const (
 	qualifierPlatform = "platform"
 	// universalPlatform is the platform of a build that runs on every one.
 	universalPlatform = "universal"
+	// rubyPlatform is RubyGems' universal platform: a gem built for none installs on any.
+	rubyPlatform = "ruby"
 )
 
 func (o ResolveOptions) hasSelectionQualifier() bool {
@@ -176,9 +178,8 @@ func (r *Resolver) ResolveWithOptions(
 	// For ecosystems like PyPI, we need to fetch metadata to get the URL
 	info, err := r.resolveFromMetadata(ctx, reg, name, version, options)
 	if (errors.Is(err, ErrNoDownloadURL) || errors.Is(err, ErrNotFound)) && options.hasSelectionQualifier() {
-		// The registry lists no artifacts to pick among, or lists the
-		// version under another number as RubyGems does for a platform
-		// build, so the built URL is the only one there is.
+		// The registry lists no artifacts to pick among, or doesn't list
+		// the version, so the built URL is the only one there is.
 		if url := reg.URLs().Download(name, version); url != "" {
 			return matchSingleArtifact(&ArtifactInfo{URL: url, Filename: filenameFromURL(url)}, options, nil)
 		}
@@ -349,7 +350,7 @@ func qualifiersMatch(metadata map[string]any, qualifiers map[string]string, allo
 		if !ok || got == "" || got == want {
 			continue
 		}
-		if key == qualifierPlatform && got == universalPlatform && allowUniversal {
+		if key == qualifierPlatform && (got == universalPlatform || got == rubyPlatform) && allowUniversal {
 			continue
 		}
 		return false
