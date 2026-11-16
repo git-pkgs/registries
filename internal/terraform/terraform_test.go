@@ -12,6 +12,10 @@ import (
 
 func TestFetchPackage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == discoveryPath {
+			w.WriteHeader(404)
+			return
+		}
 		if r.URL.Path != "/v1/modules/hashicorp/consul/aws" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 			w.WriteHeader(404)

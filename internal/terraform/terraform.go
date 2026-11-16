@@ -3,9 +3,11 @@ package terraform
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/git-pkgs/registries/internal/core"
 	"github.com/git-pkgs/registries/internal/urlparser"
@@ -22,10 +24,15 @@ func init() {
 	})
 }
 
+var errInvalidName = errors.New("terraform name must be 'namespace/type' for a provider or 'namespace/name/provider' for a module")
+
 type Registry struct {
 	baseURL string
 	client  *core.Client
 	urls    *URLs
+
+	mu       sync.Mutex
+	services *services
 }
 
 func New(baseURL string, client *core.Client) *Registry {
@@ -108,12 +115,19 @@ type providerEntry struct {
 }
 
 func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package, error) {
+	if namespace, typ, ok := parseProviderName(name); ok {
+		return r.fetchProviderPackage(ctx, name, namespace, typ)
+	}
 	namespace, moduleName, provider, ok := parseModuleName(name)
 	if !ok {
-		return nil, fmt.Errorf("terraform module name must be in format 'namespace/name/provider'")
+		return nil, errInvalidName
 	}
 
-	url := fmt.Sprintf("%s/v1/modules/%s/%s/%s", r.baseURL, namespace, moduleName, provider)
+	modules, err := r.serviceURL(ctx, modulesService)
+	if err != nil {
+		return nil, err
+	}
+	url := fmt.Sprintf("%s%s/%s/%s", modules, namespace, moduleName, provider)
 
 	var resp moduleResponse
 	if err := r.client.GetJSON(ctx, url, &resp); err != nil {
@@ -141,12 +155,19 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 }
 
 func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Version, error) {
+	if namespace, typ, ok := parseProviderName(name); ok {
+		return r.fetchProviderVersions(ctx, name, namespace, typ)
+	}
 	namespace, moduleName, provider, ok := parseModuleName(name)
 	if !ok {
-		return nil, fmt.Errorf("terraform module name must be in format 'namespace/name/provider'")
+		return nil, errInvalidName
 	}
 
-	url := fmt.Sprintf("%s/v1/modules/%s/%s/%s/versions", r.baseURL, namespace, moduleName, provider)
+	modules, err := r.serviceURL(ctx, modulesService)
+	if err != nil {
+		return nil, err
+	}
+	url := fmt.Sprintf("%s%s/%s/%s/versions", modules, namespace, moduleName, provider)
 
 	var resp moduleVersionsResponse
 	if err := r.client.GetJSON(ctx, url, &resp); err != nil {
@@ -176,12 +197,20 @@ func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Versi
 }
 
 func (r *Registry) FetchDependencies(ctx context.Context, name, version string) ([]core.Dependency, error) {
+	// Providers declare no dependencies.
+	if _, _, ok := parseProviderName(name); ok {
+		return nil, nil
+	}
 	namespace, moduleName, provider, ok := parseModuleName(name)
 	if !ok {
-		return nil, fmt.Errorf("terraform module name must be in format 'namespace/name/provider'")
+		return nil, errInvalidName
 	}
 
-	url := fmt.Sprintf("%s/v1/modules/%s/%s/%s/%s", r.baseURL, namespace, moduleName, provider, version)
+	modules, err := r.serviceURL(ctx, modulesService)
+	if err != nil {
+		return nil, err
+	}
+	url := fmt.Sprintf("%s%s/%s/%s/%s", modules, namespace, moduleName, provider, version)
 
 	var resp versionEntry
 	if err := r.client.GetJSON(ctx, url, &resp); err != nil {
@@ -225,6 +254,9 @@ func (r *Registry) FetchDependencies(ctx context.Context, name, version string) 
 func (r *Registry) FetchMaintainers(ctx context.Context, name string) ([]core.Maintainer, error) {
 	namespace, _, _, ok := parseModuleName(name)
 	if !ok {
+		namespace, _, ok = parseProviderName(name)
+	}
+	if !ok {
 		return nil, nil
 	}
 
@@ -240,6 +272,9 @@ type URLs struct {
 }
 
 func (u *URLs) Registry(name, version string) string {
+	if namespace, typ, ok := parseProviderName(name); ok {
+		return u.providerPage(namespace, typ, version, "")
+	}
 	namespace, moduleName, provider, ok := parseModuleName(name)
 	if !ok {
 		return ""
@@ -250,7 +285,12 @@ func (u *URLs) Registry(name, version string) string {
 	return fmt.Sprintf("https://registry.terraform.io/modules/%s/%s/%s", namespace, moduleName, provider)
 }
 
+// Download is the module's download endpoint. A provider has an archive per
+// platform, named by the download endpoint for that platform, so it has none.
 func (u *URLs) Download(name, version string) string {
+	if _, _, ok := parseProviderName(name); ok {
+		return ""
+	}
 	namespace, moduleName, provider, ok := parseModuleName(name)
 	if !ok || version == "" {
 		return ""
@@ -259,10 +299,16 @@ func (u *URLs) Download(name, version string) string {
 }
 
 func (u *URLs) Documentation(name, version string) string {
+	if namespace, typ, ok := parseProviderName(name); ok {
+		return u.providerPage(namespace, typ, version, "/docs")
+	}
 	return u.Registry(name, version)
 }
 
 func (u *URLs) PURL(name, version string) string {
+	if namespace, typ, ok := parseProviderName(name); ok {
+		return u.providerPURL(namespace, typ, version)
+	}
 	namespace, moduleName, provider, ok := parseModuleName(name)
 	if !ok {
 		return ""

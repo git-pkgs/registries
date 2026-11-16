@@ -10,6 +10,7 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/git-pkgs/registries/safehttp"
@@ -74,6 +75,32 @@ func (c *Client) GetJSONWithHeaders(ctx context.Context, url string, headers htt
 		return responseHeaders, err
 	}
 	return responseHeaders, json.Unmarshal(body, v)
+}
+
+// GetJSONWithFinalURL is GetJSON that also returns the URL the response came
+// from, after redirects, for documents whose relative URLs resolve against
+// it.
+func (c *Client) GetJSONWithFinalURL(ctx context.Context, rawURL string, v any) (*url.URL, error) {
+	var body []byte
+	var final *url.URL
+	_, _, err := c.open(ctx, http.MethodGet, rawURL, nil, func(resp *http.Response) error {
+		defer func() { _ = resp.Body.Close() }()
+		if resp.Request != nil {
+			final = resp.Request.URL
+		}
+		var err error
+		body, err = readLimited(resp.Body, rawURL, c.maxResponseSize())
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	if final == nil {
+		if final, err = url.Parse(rawURL); err != nil {
+			return nil, err
+		}
+	}
+	return final, json.Unmarshal(body, v)
 }
 
 // GetBody fetches a URL and returns the response body. A body larger than
