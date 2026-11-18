@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/url"
 	"strings"
@@ -162,22 +164,22 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 	var haveLatest bool
 	var pending map[string]json.RawMessage
 	var header *packumentHeader
-	header, err := r.streamPackument(ctx, name, func(h *packumentHeader, number string, dec *json.Decoder) error {
+	header, err := r.streamPackument(ctx, name, func(h *packumentHeader, number string, dec *jsontext.Decoder) error {
 		if want, ok := h.DistTags["latest"]; ok {
 			if number != want || haveLatest {
 				return skipValue(dec)
 			}
 			haveLatest = true
-			return dec.Decode(&latest)
+			return decodeValue(dec, &latest)
 		}
-		var raw json.RawMessage
-		if err := dec.Decode(&raw); err != nil {
+		raw, err := dec.ReadValue()
+		if err != nil {
 			return err
 		}
 		if pending == nil {
 			pending = make(map[string]json.RawMessage)
 		}
-		pending[number] = raw
+		pending[number] = json.RawMessage(bytes.Clone(raw))
 		return nil
 	})
 	if err != nil {
@@ -238,19 +240,19 @@ type packumentHeader struct {
 // document of tens of MB is never held whole. version is called with each
 // entry of versions and must consume exactly one value from dec; header
 // holds the top-level fields read so far.
-func (r *Registry) streamPackument(ctx context.Context, name string, version func(h *packumentHeader, number string, dec *json.Decoder) error) (*packumentHeader, error) {
+func (r *Registry) streamPackument(ctx context.Context, name string, version func(h *packumentHeader, number string, dec *jsontext.Decoder) error) (*packumentHeader, error) {
 	endpoint := fmt.Sprintf("%s/%s", r.baseURL, url.PathEscape(name))
 	var header packumentHeader
-	err := r.client.StreamJSON(ctx, endpoint, func(dec *json.Decoder) error {
+	err := r.client.StreamJSONText(ctx, endpoint, func(dec *jsontext.Decoder) error {
 		if err := expectDelim(dec, '{'); err != nil {
 			return err
 		}
-		for dec.More() {
-			tok, err := dec.Token()
+		for dec.PeekKind() != '}' {
+			tok, err := dec.ReadToken()
 			if err != nil {
 				return err
 			}
-			key, _ := tok.(string)
+			key := tok.String()
 			var target any
 			switch key {
 			case "_id":
@@ -280,7 +282,7 @@ func (r *Registry) streamPackument(ctx context.Context, name string, version fun
 				}
 				continue
 			}
-			if err := dec.Decode(target); err != nil {
+			if err := decodeValue(dec, target); err != nil {
 				return err
 			}
 		}
@@ -295,77 +297,69 @@ func (r *Registry) streamPackument(ctx context.Context, name string, version fun
 	return &header, nil
 }
 
-func decodeVersions(dec *json.Decoder, header *packumentHeader, version func(h *packumentHeader, number string, dec *json.Decoder) error) error {
-	tok, err := dec.Token()
-	if err != nil {
-		return err
-	}
-	if tok == nil {
-		return nil
-	}
-	if tok != json.Delim('{') {
+func decodeVersions(dec *jsontext.Decoder, header *packumentHeader, version func(h *packumentHeader, number string, dec *jsontext.Decoder) error) error {
+	switch dec.PeekKind() {
+	case 'n':
+		return dec.SkipValue()
+	case '{':
+	default:
+		if err := dec.SkipValue(); err != nil {
+			return err
+		}
 		return fmt.Errorf("npm packument: versions is not an object")
 	}
-	for dec.More() {
-		tok, err := dec.Token()
+	if _, err := dec.ReadToken(); err != nil {
+		return err
+	}
+	for dec.PeekKind() != '}' {
+		tok, err := dec.ReadToken()
 		if err != nil {
 			return err
 		}
-		number, _ := tok.(string)
-		if err := version(header, number, dec); err != nil {
+		if err := version(header, tok.String(), dec); err != nil {
 			return err
 		}
 	}
 	return expectDelim(dec, '}')
 }
 
-func expectDelim(dec *json.Decoder, want json.Delim) error {
-	tok, err := dec.Token()
+func expectDelim(dec *jsontext.Decoder, want jsontext.Kind) error {
+	tok, err := dec.ReadToken()
 	if err != nil {
 		return err
 	}
-	if tok != want {
+	if tok.Kind() != want {
 		return fmt.Errorf("npm packument: expected %q, got %v", want, tok)
 	}
 	return nil
 }
 
 // skipValue consumes one value without keeping it.
-func skipValue(dec *json.Decoder) error {
-	depth := 0
-	for {
-		tok, err := dec.Token()
-		if err != nil {
-			return err
-		}
-		switch tok {
-		case json.Delim('{'), json.Delim('['):
-			depth++
-		case json.Delim('}'), json.Delim(']'):
-			depth--
-		}
-		if depth == 0 {
-			return nil
-		}
-	}
+func skipValue(dec *jsontext.Decoder) error {
+	return dec.SkipValue()
+}
+
+// decodeValue decodes the next value into v with encoding/json v1 semantics.
+func decodeValue(dec *jsontext.Decoder, v any) error {
+	return jsonv2.UnmarshalDecode(dec, v, json.DefaultOptionsV1())
 }
 
 // decodeOne decodes the version named want and skips the rest.
-func decodeOne(want string, info *versionInfo, found *bool) func(*packumentHeader, string, *json.Decoder) error {
-	return func(_ *packumentHeader, number string, dec *json.Decoder) error {
+func decodeOne(want string, info *versionInfo, found *bool) func(*packumentHeader, string, *jsontext.Decoder) error {
+	return func(_ *packumentHeader, number string, dec *jsontext.Decoder) error {
 		if number != want || *found {
 			return skipValue(dec)
 		}
 		*found = true
-		return dec.Decode(info)
+		return decodeValue(dec, info)
 	}
 }
 
 func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Version, error) {
 	var versions []core.Version
-	header, err := r.streamPackument(ctx, name, func(_ *packumentHeader, number string, dec *json.Decoder) error {
+	header, err := r.streamPackument(ctx, name, func(_ *packumentHeader, number string, dec *jsontext.Decoder) error {
 		var v versionInfo
-		if err := dec.Decode(&v); err != nil {
+		if err := decodeValue(dec, &v); err != nil {
 			return err
 		}
 		versions = append(versions, makeVersion(number, v, ""))
@@ -478,7 +472,7 @@ func (r *Registry) FetchDependencies(ctx context.Context, name, version string) 
 }
 
 func (r *Registry) FetchMaintainers(ctx context.Context, name string) ([]core.Maintainer, error) {
-	header, err := r.streamPackument(ctx, name, func(_ *packumentHeader, _ string, dec *json.Decoder) error {
+	header, err := r.streamPackument(ctx, name, func(_ *packumentHeader, _ string, dec *jsontext.Decoder) error {
 		return skipValue(dec)
 	})
 	if err != nil {
