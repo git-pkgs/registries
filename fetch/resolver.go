@@ -20,6 +20,9 @@ var (
 	ErrNoDownloadURL        = errors.New("no download URL available")
 	ErrNoMatchingArtifact   = errors.New("no artifact matches the requested file")
 	ErrUnsafeURL            = errors.New("unsafe download URL from registry metadata")
+	// ErrAmbiguousVersion is returned for a deb version given without its
+	// epoch that the archive lists with several.
+	ErrAmbiguousVersion = errors.New("version matches several epochs")
 )
 
 // Registry provides package metadata and URL information for artifact resolution.
@@ -156,6 +159,9 @@ func (r *Resolver) ResolveWithOptions(
 	options ResolveOptions,
 ) (*ArtifactInfo, error) {
 	ecosystem = purl.EcosystemToPURLType(ecosystem)
+	if ecosystem == "deb" {
+		options.Qualifiers = debQualifiers(options.Qualifiers)
+	}
 	reg, ok := r.registries[ecosystem]
 	if !ok {
 		info, err := r.resolveWithoutRegistry(ecosystem, name, version)
@@ -262,33 +268,42 @@ func (r *Resolver) resolveFromMetadata(
 		return nil, fmt.Errorf("fetching versions: %w", err)
 	}
 
-	for _, v := range versions {
-		if v.Number != version {
-			continue
-		}
-
-		if len(v.Artifacts) > 0 {
-			return r.selectArtifact(ctx, v.Artifacts, options)
-		}
-
-		// Look for download URL in metadata. These come from the
-		// registry's API response, not from us, so they need checking
-		// before anyone fetches them.
-		if v.Metadata != nil {
-			if u, ok := v.Metadata["download_url"].(string); ok && u != "" {
-				info, err := r.artifactFromMetadataURL(ctx, u, v.Integrity)
-				return matchSingleArtifact(info, options, err)
-			}
-			if u, ok := v.Metadata["tarball"].(string); ok && u != "" {
-				info, err := r.artifactFromMetadataURL(ctx, u, v.Integrity)
-				return matchSingleArtifact(info, options, err)
-			}
-		}
-
-		return nil, ErrNoDownloadURL
+	v, err := findVersion(reg.Ecosystem(), versions, version, options)
+	if err != nil {
+		return nil, err
 	}
 
-	return nil, ErrNotFound
+	if len(v.Artifacts) > 0 {
+		return r.selectArtifact(ctx, v.Artifacts, options)
+	}
+
+	// Look for download URL in metadata. These come from the
+	// registry's API response, not from us, so they need checking
+	// before anyone fetches them.
+	if v.Metadata != nil {
+		if u, ok := v.Metadata["download_url"].(string); ok && u != "" {
+			info, err := r.artifactFromMetadataURL(ctx, u, v.Integrity)
+			return matchSingleArtifact(info, options, err)
+		}
+		if u, ok := v.Metadata["tarball"].(string); ok && u != "" {
+			info, err := r.artifactFromMetadataURL(ctx, u, v.Integrity)
+			return matchSingleArtifact(info, options, err)
+		}
+	}
+
+	return nil, ErrNoDownloadURL
+}
+
+func findVersion(ecosystem string, versions []registries.Version, version string, options ResolveOptions) (registries.Version, error) {
+	if purl.EcosystemToPURLType(ecosystem) == "deb" {
+		return debVersion(versions, version, options.Qualifiers["epoch"])
+	}
+	for _, v := range versions {
+		if v.Number == version {
+			return v, nil
+		}
+	}
+	return registries.Version{}, ErrNotFound
 }
 
 func (r *Resolver) selectArtifact(ctx context.Context, candidates []registries.Artifact, options ResolveOptions) (*ArtifactInfo, error) {
