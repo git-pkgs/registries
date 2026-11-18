@@ -294,8 +294,6 @@ func (r *Resolver) resolveFromMetadata(
 	return nil, ErrNoDownloadURL
 }
 
-// findVersion returns the version of versions that version names, or
-// ErrNotFound.
 func findVersion(ecosystem string, versions []registries.Version, version string, options ResolveOptions) (registries.Version, error) {
 	if purl.EcosystemToPURLType(ecosystem) == "deb" {
 		return debVersion(versions, version, options.Qualifiers["epoch"])
