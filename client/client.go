@@ -4,6 +4,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io"
@@ -141,6 +142,30 @@ func (c *Client) StreamJSON(ctx context.Context, url string, fn func(*json.Decod
 		return err
 	}
 	if _, err := dec.Token(); err != io.EOF {
+		if err != nil {
+			return err
+		}
+		return errors.New("unexpected data after JSON document")
+	}
+	return nil
+}
+
+// StreamJSONText is StreamJSON with a jsontext.Decoder, which can skip a
+// value without allocating for its contents. The decoder uses the v1
+// options of encoding/json. fn must consume the complete JSON document;
+// trailing data and body read errors are rejected.
+func (c *Client) StreamJSONText(ctx context.Context, url string, fn func(*jsontext.Decoder) error) error {
+	resp, _, err := c.open(ctx, http.MethodGet, url, nil, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	limit := c.maxStreamSize()
+	dec := jsontext.NewDecoder(&limitedReader{r: resp.Body, remaining: limit, limit: limit, url: url}, json.DefaultOptionsV1())
+	if err := fn(dec); err != nil {
+		return err
+	}
+	if _, err := dec.ReadToken(); err != io.EOF {
 		if err != nil {
 			return err
 		}

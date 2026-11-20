@@ -3,6 +3,8 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -143,6 +145,55 @@ func TestStreamJSONValidatesEndOfResponse(t *testing.T) {
 			}
 			if tt.truncated && !errors.Is(err, io.ErrUnexpectedEOF) {
 				t.Errorf("StreamJSON error = %v, want unexpected EOF", err)
+			}
+			if requests != 1 {
+				t.Errorf("requests = %d, want 1", requests)
+			}
+		})
+	}
+}
+
+func TestStreamJSONTextValidatesEndOfResponse(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		suffix    string
+		wantErr   bool
+		tooLarge  bool
+		truncated bool
+	}{
+		{name: "whitespace", suffix: " \n\t"},
+		{name: "garbage", suffix: "invalid", wantErr: true},
+		{name: "second value", suffix: "{}", wantErr: true},
+		{name: "oversized whitespace", suffix: strings.Repeat(" ", 1024), wantErr: true, tooLarge: true},
+		{name: "truncated transfer", wantErr: true, truncated: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			requests := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests++
+				doc := `{"ok":true,"skipped":{"a":[1,"x"]}}` + tt.suffix
+				if tt.truncated {
+					w.Header().Set("Content-Length", strconv.Itoa(len(doc)+1))
+				}
+				_, _ = w.Write([]byte(doc))
+			}))
+			defer srv.Close()
+
+			c := NewClient(WithMaxStreamSize(96))
+			var value struct {
+				OK bool `json:"OK"`
+			}
+			err := c.StreamJSONText(context.Background(), srv.URL, func(dec *jsontext.Decoder) error {
+				return jsonv2.UnmarshalDecode(dec, &value, json.DefaultOptionsV1())
+			})
+			if (err != nil) != tt.wantErr || errors.Is(err, ErrResponseTooLarge) != tt.tooLarge {
+				t.Errorf("StreamJSONText error = %v", err)
+			}
+			if tt.truncated && !errors.Is(err, io.ErrUnexpectedEOF) {
+				t.Errorf("StreamJSONText error = %v, want unexpected EOF", err)
+			}
+			if !tt.wantErr && !value.OK {
+				t.Errorf("value = %+v, want OK decoded case-insensitively as in encoding/json", value)
 			}
 			if requests != 1 {
 				t.Errorf("requests = %d, want 1", requests)
