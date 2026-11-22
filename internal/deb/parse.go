@@ -165,6 +165,11 @@ func parseRelease(data []byte) (*release, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseReleaseText(text)
+}
+
+// parseReleaseText reads the text of a Release file.
+func parseReleaseText(text []byte) (*release, error) {
 	rel := &release{files: map[string]fileSum{}}
 	scanner := bufio.NewScanner(bytes.NewReader(text))
 	scanner.Buffer(nil, maxLineSize)

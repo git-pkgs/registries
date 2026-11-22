@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/git-pkgs/purl"
 	"github.com/git-pkgs/registries/internal/core"
 	"github.com/git-pkgs/registries/internal/xzlimit"
@@ -76,6 +77,8 @@ type Registry struct {
 	configErr     error
 	client        *core.Client
 	urls          *URLs
+	// keyring, when set, is what the Release files must be signed with.
+	keyring openpgp.EntityList
 
 	maxIndexSize int64
 
@@ -89,6 +92,9 @@ func New(baseURL string, client *core.Client) *Registry {
 	}
 	r := &Registry{client: client, maxIndexSize: maxIndexSize}
 	r.configErr = r.configure(baseURL)
+	if r.configErr == nil {
+		r.keyring, r.configErr = keyringFor(client, r.archiveURL)
+	}
 	r.urls = &URLs{repositoryURL: r.repositoryURL()}
 	return r
 }
@@ -110,8 +116,7 @@ func (r *Registry) configure(baseURL string) error {
 		return fmt.Errorf("%w: %q is not an archive URL", ErrInvalidConfig, baseURL)
 	}
 	q := u.Query()
-	u.RawQuery, u.Fragment = "", ""
-	r.archiveURL = strings.TrimSuffix(u.String(), "/")
+	r.archiveURL = archiveRoot(u)
 	r.suites = splitList(q.Get("suites"))
 	r.components = splitList(q.Get("components"))
 	r.architectures = splitList(q.Get("architectures"))
@@ -247,8 +252,12 @@ func (r *Registry) readSuite(ctx context.Context, suite string, add func(record)
 }
 
 // fetchRelease reads InRelease, falling back to Release. It returns nil
-// when the suite has neither, and its indexes are read unchecked.
+// when the suite has neither, and its indexes are read unchecked. With a
+// keyring, the Release must be signed (see fetchSignedRelease).
 func (r *Registry) fetchRelease(ctx context.Context, suite string) (*release, error) {
+	if r.keyring != nil {
+		return r.fetchSignedRelease(ctx, suite)
+	}
 	for _, name := range []string{"InRelease", "Release"} {
 		body, err := r.client.GetBody(ctx, r.archiveURL+"/dists/"+suite+"/"+name)
 		if isNotFound(err) {
