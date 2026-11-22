@@ -33,6 +33,12 @@ type Registry interface {
 	URLs() client.URLBuilder
 }
 
+// artifactFetcher is a Registry whose FetchVersions can leave out a
+// version's artifacts, which FetchArtifacts then lists.
+type artifactFetcher interface {
+	FetchArtifacts(ctx context.Context, name, version string) ([]registries.Artifact, error)
+}
+
 // defaultBaseURLs are the public registry hosts used when no registry is
 // registered for an ecosystem and WithBaseURLs does not override them.
 var defaultBaseURLs = map[string]string{
@@ -271,6 +277,14 @@ func (r *Resolver) resolveFromMetadata(
 	v, err := findVersion(reg.Ecosystem(), versions, version, options)
 	if err != nil {
 		return nil, err
+	}
+	// A registry that lists versions without their artifacts, such as deb
+	// on snapshot.debian.org, fetches them for the version found.
+	if fetcher, ok := reg.(artifactFetcher); ok && len(v.Artifacts) == 0 {
+		v.Artifacts, err = fetcher.FetchArtifacts(ctx, name, v.Number)
+		if err != nil {
+			return nil, fmt.Errorf("fetching artifacts: %w", err)
+		}
 	}
 
 	if len(v.Artifacts) > 0 {

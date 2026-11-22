@@ -1,0 +1,49 @@
+{
+ "_comment": "foo",
+ "binary": "openssh-client",
+ "binary_version": "1:9.2p1-2+deb12u3",
+ "fileinfo": {
+  "81171c850daaaedc27dabae3717dc20943ef371a": [
+   {
+    "archive_name": "debian-security",
+    "first_seen": "20240701T082523Z",
+    "name": "openssh-client_9.2p1-2+deb12u3_amd64.deb",
+    "path": "/pool/updates/main/o/openssh",
+    "size": 990808
+   },
+   {
+    "archive_name": "debian",
+    "first_seen": "20240701T204138Z",
+    "name": "openssh-client_9.2p1-2+deb12u3_amd64.deb",
+    "path": "/pool/main/o/openssh",
+    "size": 990808
+   }
+  ],
+  "cbd60f5bdf4f576681cb75f888761abc94cb72ca": [
+   {
+    "archive_name": "debian-security",
+    "first_seen": "20240701T082523Z",
+    "name": "openssh-client_9.2p1-2+deb12u3_arm64.deb",
+    "path": "/pool/updates/main/o/openssh",
+    "size": 937432
+   },
+   {
+    "archive_name": "debian",
+    "first_seen": "20240701T204138Z",
+    "name": "openssh-client_9.2p1-2+deb12u3_arm64.deb",
+    "path": "/pool/main/o/openssh",
+    "size": 937432
+   }
+  ]
+ },
+ "result": [
+  {
+   "architecture": "amd64",
+   "hash": "81171c850daaaedc27dabae3717dc20943ef371a"
+  },
+  {
+   "architecture": "arm64",
+   "hash": "cbd60f5bdf4f576681cb75f888761abc94cb72ca"
+  }
+ ]
+}
