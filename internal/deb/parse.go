@@ -154,6 +154,9 @@ type fileSum struct {
 type release struct {
 	codename string
 	suite    string
+	// validUntil is the Valid-Until field as written, checked only for a
+	// signed Release.
+	validUntil string
 	// files maps a path under dists/<suite>/ to its SHA256 entry.
 	files map[string]fileSum
 }
@@ -201,6 +204,8 @@ func parseReleaseText(text []byte) (*release, error) {
 			rel.codename = strings.TrimSpace(value)
 		case "suite":
 			rel.suite = strings.TrimSpace(value)
+		case "valid-until":
+			rel.validUntil = strings.TrimSpace(value)
 		}
 	}
 	if err := scanner.Err(); err != nil {

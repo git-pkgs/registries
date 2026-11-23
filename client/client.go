@@ -433,9 +433,10 @@ func WithMaxStreamSize(n int64) Option {
 
 // WithDebianKeyring makes the deb registry for archiveURL, the archive
 // root such as https://deb.debian.org/debian, check its Release files
-// against keyring, an armored or binary OpenPGP keyring. InRelease must
-// then carry a valid signature by one of its keys, a Release without
-// InRelease a valid Release.gpg, and a suite without either is refused.
+// against keyring, a binary OpenPGP keyring or one or more armored
+// blocks. InRelease must then carry a valid signature by one of its keys,
+// a Release without InRelease a valid Release.gpg, and a suite without
+// either, or a Release whose Valid-Until has passed, is refused.
 // Archives without a keyring are read without checking signatures.
 func WithDebianKeyring(archiveURL string, keyring []byte) Option {
 	return func(c *Client) {
