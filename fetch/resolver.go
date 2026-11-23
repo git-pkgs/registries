@@ -285,6 +285,11 @@ func (r *Resolver) resolveFromMetadata(
 		if err != nil {
 			return nil, fmt.Errorf("fetching artifacts: %w", err)
 		}
+		// The version exists but has no file the registry is set to
+		// read, such as one for another architecture.
+		if len(v.Artifacts) == 0 {
+			return nil, ErrNoMatchingArtifact
+		}
 	}
 
 	if len(v.Artifacts) > 0 {
