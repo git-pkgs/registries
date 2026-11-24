@@ -48,6 +48,10 @@ type Client struct {
 	// MaxStreamSize limits bodies read through Stream and StreamJSON; zero
 	// means 512 MiB.
 	MaxStreamSize int64
+	// DebianKeyrings maps a Debian archive root to the OpenPGP keyring,
+	// armored or binary, its Release files must be signed with. See
+	// WithDebianKeyring.
+	DebianKeyrings map[string][]byte
 }
 
 // DefaultClient returns a client with sensible defaults.
@@ -424,6 +428,24 @@ func WithMaxResponseSize(n int64) Option {
 func WithMaxStreamSize(n int64) Option {
 	return func(c *Client) {
 		c.MaxStreamSize = n
+	}
+}
+
+// WithDebianKeyring makes the deb registry for archiveURL, the archive
+// root such as https://deb.debian.org/debian, check its Release files
+// against keyring, a binary OpenPGP keyring or one or more armored
+// blocks. InRelease must then carry a valid signature by one of its keys,
+// a Release without InRelease a valid Release.gpg, and a suite without
+// either, or a Release whose Valid-Until has passed, is refused.
+// Archives without a keyring are read without checking signatures.
+func WithDebianKeyring(archiveURL string, keyring []byte) Option {
+	return func(c *Client) {
+		keyrings := make(map[string][]byte, len(c.DebianKeyrings)+1)
+		for k, v := range c.DebianKeyrings {
+			keyrings[k] = v
+		}
+		keyrings[archiveURL] = keyring
+		c.DebianKeyrings = keyrings
 	}
 }
 

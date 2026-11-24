@@ -156,6 +156,10 @@ var WithMaxResponseSize = client.WithMaxResponseSize
 // WithMaxStreamSize sets the limit for streamed response bodies.
 var WithMaxStreamSize = client.WithMaxStreamSize
 
+// WithDebianKeyring makes a Debian archive's Release files be checked
+// against an OpenPGP keyring.
+var WithDebianKeyring = client.WithDebianKeyring
+
 // SupportedEcosystems returns all registered ecosystem types.
 // Note: ecosystems must be imported to be registered.
 func SupportedEcosystems() []string {

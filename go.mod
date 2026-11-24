@@ -5,6 +5,7 @@ go 1.27
 toolchain go1.27.3
 
 require (
+	github.com/ProtonMail/go-crypto v1.5.2
 	github.com/cenk/backoff v2.2.1+incompatible
 	github.com/facebookgo/clock v0.0.0-20150410010913-600d898af40a
 	github.com/git-pkgs/artifacts v0.2.1
@@ -21,8 +22,11 @@ require (
 )
 
 require (
+	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/github/go-spdx/v2 v2.8.0 // indirect
 	github.com/package-url/packageurl-go v0.1.7 // indirect
 	github.com/peterbourgon/g2s v0.0.0-20170223122336-d4e7ad98afea // indirect
+	golang.org/x/crypto v0.41.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
+	golang.org/x/sys v0.35.0 // indirect
 )
