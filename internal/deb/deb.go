@@ -67,6 +67,11 @@ func init() {
 // components defaults to main. An archive under another root, such as
 // deb.debian.org/debian-security, is a Registry of its own.
 //
+// snapshot.debian.org's root, with architectures only, reads its API
+// instead, and so finds versions that have left the archive:
+//
+//	https://snapshot.debian.org?architectures=amd64
+//
 // The indexes are downloaded once per Registry and kept for its lifetime,
 // so callers looking up many packages should reuse one Registry.
 type Registry struct {
@@ -75,6 +80,7 @@ type Registry struct {
 	components    []string
 	architectures []string
 	configErr     error
+	snapshot      bool
 	client        *core.Client
 	urls          *URLs
 	// keyring, when set, is what the Release files must be signed with.
@@ -105,6 +111,9 @@ func (r *Registry) repositoryURL() string {
 	if r.archiveURL == "" {
 		return ""
 	}
+	if r.snapshot {
+		return r.archiveURL + "?architectures=" + strings.Join(r.architectures, ",")
+	}
 	return r.archiveURL + "?suites=" + strings.Join(r.suites, ",") +
 		"&components=" + strings.Join(r.components, ",") +
 		"&architectures=" + strings.Join(r.architectures, ",")
@@ -116,6 +125,9 @@ func (r *Registry) configure(baseURL string) error {
 		return fmt.Errorf("%w: %q is not an archive URL", ErrInvalidConfig, baseURL)
 	}
 	q := u.Query()
+	if isSnapshotRoot(u) {
+		return r.configureSnapshot(q, baseURL)
+	}
 	r.archiveURL = archiveRoot(u)
 	r.suites = splitList(q.Get("suites"))
 	r.components = splitList(q.Get("components"))
@@ -409,6 +421,9 @@ func (r *Registry) lookup(ctx context.Context, name string) ([]record, error) {
 }
 
 func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package, error) {
+	if r.snapshot {
+		return r.snapshotPackage(ctx, name)
+	}
 	recs, err := r.lookup(ctx, name)
 	if err != nil {
 		return nil, err
@@ -430,7 +445,13 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 
 // FetchVersions returns one Version per version number, newest first, with
 // an artifact for each architecture and suite it was found in.
+//
+// On snapshot.debian.org, versions come without artifacts, which
+// FetchVersion lists.
 func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Version, error) {
+	if r.snapshot {
+		return r.snapshotVersions(ctx, name)
+	}
 	recs, err := r.lookup(ctx, name)
 	if err != nil {
 		return nil, err
@@ -477,7 +498,37 @@ func (r *Registry) artifact(rec record) (core.Artifact, bool) {
 	return artifact, true
 }
 
+// FetchVersion returns one version with its artifacts.
+func (r *Registry) FetchVersion(ctx context.Context, name, version string) (*core.Version, error) {
+	if r.snapshot {
+		return r.snapshotVersion(ctx, name, version)
+	}
+	versions, err := r.FetchVersions(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	for i := range versions {
+		if versions[i].Number == version {
+			return &versions[i], nil
+		}
+	}
+	return nil, &core.NotFoundError{Ecosystem: ecosystem, Name: name, Version: version}
+}
+
+// FetchArtifacts returns a version's artifacts, which FetchVersions leaves
+// out on snapshot.debian.org.
+func (r *Registry) FetchArtifacts(ctx context.Context, name, version string) ([]core.Artifact, error) {
+	v, err := r.FetchVersion(ctx, name, version)
+	if err != nil {
+		return nil, err
+	}
+	return v.Artifacts, nil
+}
+
 func (r *Registry) FetchDependencies(ctx context.Context, name, version string) ([]core.Dependency, error) {
+	if r.snapshot {
+		return nil, fmt.Errorf("%w: %s lists no dependencies", errors.ErrUnsupported, snapshotHost)
+	}
 	recs, err := r.lookup(ctx, name)
 	if err != nil {
 		return nil, err
@@ -496,6 +547,9 @@ func (r *Registry) FetchDependencies(ctx context.Context, name, version string) 
 }
 
 func (r *Registry) FetchMaintainers(ctx context.Context, name string) ([]core.Maintainer, error) {
+	if r.snapshot {
+		return nil, fmt.Errorf("%w: %s lists no maintainers", errors.ErrUnsupported, snapshotHost)
+	}
 	recs, err := r.lookup(ctx, name)
 	if err != nil {
 		return nil, err

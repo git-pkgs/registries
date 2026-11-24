@@ -1,0 +1,48 @@
+{
+ "_comment": "foo",
+ "binary": "hello",
+ "binary_version": "2.10-3",
+ "fileinfo": {
+  "2d5dfa44e05ee29114965a29a1b503722e1e3feb": [
+   {
+    "archive_name": "debian",
+    "first_seen": "20221227T032939Z",
+    "name": "hello_2.10-3_s390x.deb",
+    "path": "/pool/main/h/hello",
+    "size": 52508
+   }
+  ],
+  "886b91e2acb631a2e0dcdfdf21af03f55d801d22": [
+   {
+    "archive_name": "debian",
+    "first_seen": "20221227T032939Z",
+    "name": "hello_2.10-3_arm64.deb",
+    "path": "/pool/main/h/hello",
+    "size": 52308
+   }
+  ],
+  "f322085c1e2f95e8febe24989f776cfac268ff90": [
+   {
+    "archive_name": "debian",
+    "first_seen": "20221227T032939Z",
+    "name": "hello_2.10-3_amd64.deb",
+    "path": "/pool/main/h/hello",
+    "size": 53080
+   }
+  ]
+ },
+ "result": [
+  {
+   "architecture": "arm64",
+   "hash": "886b91e2acb631a2e0dcdfdf21af03f55d801d22"
+  },
+  {
+   "architecture": "amd64",
+   "hash": "f322085c1e2f95e8febe24989f776cfac268ff90"
+  },
+  {
+   "architecture": "s390x",
+   "hash": "2d5dfa44e05ee29114965a29a1b503722e1e3feb"
+  }
+ ]
+}

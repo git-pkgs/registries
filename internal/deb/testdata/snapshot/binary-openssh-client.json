@@ -1,0 +1,18 @@
+{
+ "_comment": "foo",
+ "binary": "openssh-client",
+ "result": [
+  {
+   "binary_version": "1:9.2p1-2+deb12u10",
+   "name": "openssh-client",
+   "source": "openssh",
+   "version": "1:9.2p1-2+deb12u10"
+  },
+  {
+   "binary_version": "1:9.2p1-2+deb12u3",
+   "name": "openssh-client",
+   "source": "openssh",
+   "version": "1:9.2p1-2+deb12u3"
+  }
+ ]
+}

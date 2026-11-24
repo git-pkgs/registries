@@ -7,6 +7,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/git-pkgs/registries"
@@ -182,5 +185,81 @@ func TestResolveDebVersionWithoutEpoch(t *testing.T) {
 		if _, err := resolve(tt.name, tt.version, tt.epoch); !errors.Is(err, ErrNotFound) {
 			t.Errorf("%s@%s epoch=%s: err = %v, want ErrNotFound", tt.name, tt.version, tt.epoch, err)
 		}
+	}
+}
+
+// snapshotFixtures are the snapshot.debian.org API responses the deb
+// package's tests record, by request path.
+var snapshotFixtures = map[string]string{
+	"/mr/binary/openssh-client/":                           "binary-openssh-client.json",
+	"/mr/binary/openssh-client/1:9.2p1-2+deb12u3/binfiles": "binfiles-openssh-client.json",
+}
+
+// snapshotHostTransport sends every request to target, so a registry for
+// https://snapshot.debian.org reads the recorded responses.
+type snapshotHostTransport struct{ target *url.URL }
+
+func (t snapshotHostTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
+	req.URL.Scheme, req.URL.Host = t.target.Scheme, t.target.Host
+	return http.DefaultTransport.RoundTrip(req)
+}
+
+// snapshotResolver resolves through the deb registry for
+// snapshot.debian.org with architectures, serving its API from the
+// recorded responses.
+func snapshotResolver(t *testing.T, architectures string) *Resolver {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name, ok := snapshotFixtures[r.URL.Path]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		body, err := os.ReadFile(filepath.Join("..", "internal", "deb", "testdata", "snapshot", name))
+		if err != nil {
+			t.Error(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(server.Close)
+	target, _ := url.Parse(server.URL)
+	client := registries.DefaultClient()
+	client.HTTPClient = &http.Client{Transport: snapshotHostTransport{target}}
+	reg, err := registries.New("deb", "https://snapshot.debian.org?architectures="+architectures, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewResolver()
+	r.RegisterRegistry(reg)
+	return r
+}
+
+// A scanner's PURL carries a distro, which snapshot artifacts don't record,
+// and a version without its epoch.
+func TestResolveDebFromSnapshot(t *testing.T) {
+	r := snapshotResolver(t, "amd64")
+	info, err := r.ResolveWithOptions(context.Background(), "deb", "debian/openssh-client", "9.2p1-2+deb12u3",
+		ResolveOptions{Qualifiers: map[string]string{"arch": "amd64", "distro": "debian-12"}})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	want := ArtifactInfo{
+		URL:       "https://snapshot.debian.org/file/81171c850daaaedc27dabae3717dc20943ef371a",
+		Filename:  "openssh-client_9.2p1-2+deb12u3_amd64.deb",
+		Integrity: "sha1-81171c850daaaedc27dabae3717dc20943ef371a",
+		Size:      990808,
+	}
+	if *info != want {
+		t.Errorf("info = %+v, want %+v", *info, want)
+	}
+}
+
+func TestResolveDebFromSnapshotWithoutFileForArchitecture(t *testing.T) {
+	r := snapshotResolver(t, "riscv64")
+	_, err := r.ResolveWithOptions(context.Background(), "deb", "debian/openssh-client", "9.2p1-2+deb12u3", ResolveOptions{})
+	if !errors.Is(err, ErrNoMatchingArtifact) {
+		t.Errorf("err = %v, want ErrNoMatchingArtifact", err)
 	}
 }
