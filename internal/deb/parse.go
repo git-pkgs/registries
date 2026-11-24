@@ -154,6 +154,9 @@ type fileSum struct {
 type release struct {
 	codename string
 	suite    string
+	// validUntil is the Valid-Until field as written, checked only for a
+	// signed Release.
+	validUntil string
 	// files maps a path under dists/<suite>/ to its SHA256 entry.
 	files map[string]fileSum
 }
@@ -165,6 +168,11 @@ func parseRelease(data []byte) (*release, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseReleaseText(text)
+}
+
+// parseReleaseText reads the text of a Release file.
+func parseReleaseText(text []byte) (*release, error) {
 	rel := &release{files: map[string]fileSum{}}
 	scanner := bufio.NewScanner(bytes.NewReader(text))
 	scanner.Buffer(nil, maxLineSize)
@@ -196,6 +204,8 @@ func parseRelease(data []byte) (*release, error) {
 			rel.codename = strings.TrimSpace(value)
 		case "suite":
 			rel.suite = strings.TrimSpace(value)
+		case "valid-until":
+			rel.validUntil = strings.TrimSpace(value)
 		}
 	}
 	if err := scanner.Err(); err != nil {
