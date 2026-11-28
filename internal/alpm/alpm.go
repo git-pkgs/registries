@@ -82,8 +82,15 @@ type Registry struct {
 type dbIndex struct {
 	packages map[string][]record
 	// providers maps a name from PROVIDES, such as libalpm.so, to the
-	// package chosen to satisfy it.
-	providers map[string]string
+	// packages providing it, ordered by package name.
+	providers map[string][]provision
+}
+
+// provision is one PROVIDES entry: the providing package and the version
+// it provides, empty when the entry names none.
+type provision struct {
+	pkg     string
+	version string
 }
 
 func New(baseURL string, client *core.Client) *Registry {
@@ -185,20 +192,72 @@ func (r *Registry) index(ctx context.Context) (*dbIndex, error) {
 	return r.idx, nil
 }
 
-// buildProviders picks one package per provided name: the lowest package
-// name, so the choice is stable. pacman lists providers in that order and
-// takes the first when not asked to choose.
-func buildProviders(records []record) map[string]string {
-	providers := make(map[string]string)
+// buildProviders lists the packages providing each name, ordered by
+// package name so the choice among them is stable. pacman lists providers
+// in that order and takes the first when not asked to choose.
+func buildProviders(records []record) map[string][]provision {
+	providers := make(map[string][]provision)
 	for _, rec := range records {
 		for _, p := range rec.provides {
-			provided, _ := splitConstraint(p)
-			if cur, ok := providers[provided]; !ok || rec.name < cur {
-				providers[provided] = rec.name
+			provided, requirement := splitConstraint(p)
+			// Only "name=version" provides a version; pacman ignores any
+			// other operator in PROVIDES.
+			version, ok := strings.CutPrefix(requirement, "=")
+			if !ok {
+				version = ""
 			}
+			providers[provided] = append(providers[provided], provision{pkg: rec.name, version: version})
 		}
 	}
+	for _, provs := range providers {
+		sort.SliceStable(provs, func(i, j int) bool { return provs[i].pkg < provs[j].pkg })
+	}
 	return providers
+}
+
+// provider returns the first package, by name, whose PROVIDES satisfies a
+// dependency on name, as pacman's _alpm_depcmp_provides decides: any
+// provision of the name meets an unversioned dependency, but a versioned
+// one needs a provided version that meets its constraint.
+func (idx *dbIndex) provider(name, requirement string) (string, bool) {
+	for _, p := range idx.providers[name] {
+		if requirement == "" || satisfies(p.version, requirement) {
+			return p.pkg, true
+		}
+	}
+	return "", false
+}
+
+// satisfies reports whether a provided version meets a requirement such as
+// ">=17", compared as pacman's dep_vercmp does. A provision without a
+// version meets none.
+func satisfies(version, requirement string) bool {
+	if version == "" {
+		return false
+	}
+	for _, op := range []string{">=", "<=", "=", ">", "<"} {
+		want, ok := strings.CutPrefix(requirement, op)
+		if !ok {
+			continue
+		}
+		if want == "" {
+			return false
+		}
+		cmp := vers.CompareWithScheme(version, want, ecosystem)
+		switch op {
+		case ">=":
+			return cmp >= 0
+		case "<=":
+			return cmp <= 0
+		case "=":
+			return cmp == 0
+		case ">":
+			return cmp > 0
+		case "<":
+			return cmp < 0
+		}
+	}
+	return false
 }
 
 // readDatabase decompresses a sync database, detecting the format from its
@@ -332,8 +391,9 @@ func entryPath(name string) (dir, file string, err error) {
 	return segments[0], segments[1], nil
 }
 
-// parse reads the %KEY% sections of a desc or depends file, each followed
-// by its values up to a blank line, as pacman's be_sync.c does.
+// parse reads the %KEY% sections of a desc or depends file. A section's
+// values run to a blank line, as pacman's be_sync.c reads them, or to the
+// next %KEY% line, which alpm-repo-desc(5) also lets end a section.
 func (rec *record) parse(data []byte) error {
 	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
 	for i := 0; i < len(lines); i++ {
@@ -341,11 +401,11 @@ func (rec *record) parse(data []byte) error {
 		if key == "" {
 			continue
 		}
-		if len(key) < 3 || key[0] != '%' || key[len(key)-1] != '%' {
+		if !isSectionHeader(key) {
 			return fmt.Errorf("line %d: %q is not a %%KEY%% line", i+1, key)
 		}
 		var values []string
-		for i+1 < len(lines) && lines[i+1] != "" {
+		for i+1 < len(lines) && lines[i+1] != "" && !isSectionHeader(lines[i+1]) {
 			i++
 			values = append(values, lines[i])
 		}
@@ -354,6 +414,11 @@ func (rec *record) parse(data []byte) error {
 		}
 	}
 	return nil
+}
+
+// isSectionHeader reports whether a line is a %KEY% line.
+func isSectionHeader(line string) bool {
+	return len(line) >= 3 && line[0] == '%' && line[len(line)-1] == '%'
 }
 
 func (rec *record) set(key string, values []string) error {
@@ -384,9 +449,9 @@ func (rec *record) set(key string, values []string) error {
 	case "SHA256SUM":
 		rec.sha256sum = strings.ToLower(first)
 	case "CSIZE":
-		rec.size, err = strconv.ParseInt(first, 10, 64)
+		rec.size, err = parseSize(first)
 	case "ISIZE":
-		rec.installedSize, err = strconv.ParseInt(first, 10, 64)
+		rec.installedSize, err = parseSize(first)
 	case "BUILDDATE":
 		var secs int64
 		if secs, err = strconv.ParseInt(first, 10, 64); err == nil {
@@ -412,6 +477,13 @@ func (rec *record) set(key string, values []string) error {
 		rec.replaces = values
 	}
 	return err
+}
+
+// parseSize reads CSIZE or ISIZE, a byte count, refusing a sign as
+// pacman's _alpm_strtoofft does.
+func parseSize(value string) (int64, error) {
+	n, err := strconv.ParseUint(value, 10, 63)
+	return int64(n), err
 }
 
 // check holds a record to its directory name, name-pkgver-pkgrel, which
@@ -506,8 +578,20 @@ func (r *Registry) FetchPackage(ctx context.Context, name string) (*core.Package
 }
 
 // joinLicenses joins LICENSE lines, each of which applies to the package.
+// A line may itself be an SPDX expression such as "Apache-2.0 OR MIT", so
+// when there are several, each such line is wrapped in parentheses first.
 func joinLicenses(licenses []string) string {
-	return strings.Join(licenses, " AND ")
+	if len(licenses) == 1 {
+		return licenses[0]
+	}
+	grouped := make([]string, len(licenses))
+	for i, l := range licenses {
+		if strings.Contains(l, " ") {
+			l = "(" + l + ")"
+		}
+		grouped[i] = l
+	}
+	return strings.Join(grouped, " AND ")
 }
 
 func (r *Registry) FetchVersions(ctx context.Context, name string) ([]core.Version, error) {
@@ -583,9 +667,10 @@ func (r *Registry) FetchDependencies(ctx context.Context, name, version string) 
 
 // dependencies lists DEPENDS as runtime and OPTDEPENDS as optional
 // dependencies. A provided name such as libalpm.so is resolved to the
-// package providing it; its constraint applies to the provided version,
-// not the package's, so it is dropped. A provided name with no provider in
-// this database, usually one from another repository, is kept as is.
+// package providing a version that meets its constraint; the constraint
+// applies to the provided version, not the package's, so it is dropped. A
+// provided name that nothing in this database satisfies, usually one from
+// another repository, is kept as is.
 // Make, check, conflict, replace and provide relationships are in the
 // version's metadata.
 func (idx *dbIndex) dependencies(rec record) []core.Dependency {
@@ -597,7 +682,7 @@ func (idx *dbIndex) dependencies(rec record) []core.Dependency {
 			return
 		}
 		if _, ok := idx.packages[depName]; !ok {
-			if provider, ok := idx.providers[depName]; ok {
+			if provider, ok := idx.provider(depName, requirement); ok {
 				depName, requirement = provider, ""
 			}
 		}

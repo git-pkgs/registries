@@ -491,11 +491,14 @@ func TestFetchDependencies(t *testing.T) {
 func TestProviderChoice(t *testing.T) {
 	dbURL, _ := dbServer(t, gzipDB(t, []entry{
 		{name: "app-1.0-1/desc", body: "%NAME%\napp\n\n%VERSION%\n1.0-1\n\n%DEPENDS%\nsh\njava-runtime>=17\n\n%OPTDEPENDS%\nsh: for scripts\n"},
+		{name: "legacy-1.0-1/desc", body: "%NAME%\nlegacy\n\n%VERSION%\n1.0-1\n\n%DEPENDS%\njava-runtime=11\njava-runtime<11\nsh>=5\n"},
 		{name: "zsh-5.9-1/desc", body: "%NAME%\nzsh\n\n%VERSION%\n5.9-1\n\n%PROVIDES%\nsh\n"},
 		{name: "bash-5.3-1/desc", body: "%NAME%\nbash\n\n%VERSION%\n5.3-1\n\n%PROVIDES%\nsh\n"},
 		{name: "jre-openjdk-21-1/desc", body: "%NAME%\njre-openjdk\n\n%VERSION%\n21-1\n\n%PROVIDES%\njava-runtime=21\n"},
+		{name: "jre11-openjdk-11-1/desc", body: "%NAME%\njre11-openjdk\n\n%VERSION%\n11-1\n\n%PROVIDES%\njava-runtime=11\n"},
 	}))
-	deps, err := New(dbURL, core.DefaultClient()).FetchDependencies(context.Background(), "app", "1.0-1")
+	reg := New(dbURL, core.DefaultClient())
+	deps, err := reg.FetchDependencies(context.Background(), "app", "1.0-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -506,6 +509,63 @@ func TestProviderChoice(t *testing.T) {
 	}
 	if !reflect.DeepEqual(deps, want) {
 		t.Errorf("deps = %+v, want %+v", deps, want)
+	}
+
+	// Only a provided version meeting the constraint counts: jre-openjdk
+	// sorts first but provides 21, and an unversioned sh meets no >=5.
+	deps, err = reg.FetchDependencies(context.Background(), "legacy", "1.0-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = []core.Dependency{
+		{Name: "jre11-openjdk", Scope: core.Runtime},
+		{Name: "java-runtime", Requirements: "<11", Scope: core.Runtime},
+		{Name: "sh", Requirements: ">=5", Scope: core.Runtime},
+	}
+	if !reflect.DeepEqual(deps, want) {
+		t.Errorf("constrained deps = %+v, want %+v", deps, want)
+	}
+}
+
+func TestSatisfies(t *testing.T) {
+	tests := []struct {
+		version, requirement string
+		want                 bool
+	}{
+		{"21", ">=17", true},
+		{"11", ">=17", false},
+		{"17", ">17", false},
+		{"17", "<=17", true},
+		{"11", "<11", false},
+		{"4-64", "=4-64", true},
+		{"4-64", "=4", true}, // a requirement without pkgrel ignores it
+		{"4-64", "=5-64", false},
+		{"1:1.0", ">=2.0", true},
+		{"", ">=1", false},
+		{"1", ">=", false},
+	}
+	for _, tt := range tests {
+		if got := satisfies(tt.version, tt.requirement); got != tt.want {
+			t.Errorf("satisfies(%q, %q) = %v, want %v", tt.version, tt.requirement, got, tt.want)
+		}
+	}
+}
+
+func TestJoinLicenses(t *testing.T) {
+	tests := []struct {
+		licenses []string
+		want     string
+	}{
+		{nil, ""},
+		{[]string{"Apache-2.0 OR MIT"}, "Apache-2.0 OR MIT"},
+		{[]string{"MIT", "curl"}, "MIT AND curl"},
+		{[]string{"Apache-2.0 OR MIT", "Unicode-3.0"}, "(Apache-2.0 OR MIT) AND Unicode-3.0"},
+		{[]string{"GPL-2.0-only WITH Classpath-exception-2.0", "MIT"}, "(GPL-2.0-only WITH Classpath-exception-2.0) AND MIT"},
+	}
+	for _, tt := range tests {
+		if got := joinLicenses(tt.licenses); got != tt.want {
+			t.Errorf("joinLicenses(%q) = %q, want %q", tt.licenses, got, tt.want)
+		}
 	}
 }
 
@@ -562,6 +622,32 @@ func TestMissingOptionalFields(t *testing.T) {
 	pkg, err := reg.FetchPackage(context.Background(), "bare")
 	if err != nil || pkg.Description != "" || pkg.Homepage != "" {
 		t.Errorf("package = %+v, %v", pkg, err)
+	}
+}
+
+func TestSectionsWithoutBlankLines(t *testing.T) {
+	// Blank lines between sections are optional; a %KEY% line ends the
+	// section before it.
+	body := "%NAME%\nfoo\n%VERSION%\n1.0-1\n%GROUPS%\n%CSIZE%\n42\n%DEPENDS%\nbar\nbaz>=2\n"
+	dbURL, _ := dbServer(t, gzipDB(t, []entry{{name: "foo-1.0-1/desc", body: body}}))
+	reg := New(dbURL, core.DefaultClient())
+	versions, err := reg.FetchVersions(context.Background(), "foo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := versions[0]; v.Number != "1.0-1" || v.Metadata["size"] != int64(42) || !reflect.DeepEqual(v.Metadata["groups"], []string(nil)) {
+		t.Errorf("version = %+v", v)
+	}
+	deps, err := reg.FetchDependencies(context.Background(), "foo", "1.0-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []core.Dependency{
+		{Name: "bar", Scope: core.Runtime},
+		{Name: "baz", Requirements: ">=2", Scope: core.Runtime},
+	}
+	if !reflect.DeepEqual(deps, want) {
+		t.Errorf("deps = %+v, want %+v", deps, want)
 	}
 }
 
@@ -638,6 +724,8 @@ func TestMalformedDatabases(t *testing.T) {
 		{"filename with a query", tarOf(entry{name: "foo-1.0-1/desc", body: desc("foo", "1.0-1") + "\n%FILENAME%\nfoo.pkg.tar.zst?x=1\n"})},
 		{"line outside a key", tarOf(entry{name: "foo-1.0-1/desc", body: "foo\n\n" + desc("foo", "1.0-1")})},
 		{"bad size", tarOf(entry{name: "foo-1.0-1/desc", body: desc("foo", "1.0-1") + "\n%CSIZE%\nlarge\n"})},
+		{"negative size", tarOf(entry{name: "foo-1.0-1/desc", body: desc("foo", "1.0-1") + "\n%CSIZE%\n-1\n"})},
+		{"signed installed size", tarOf(entry{name: "foo-1.0-1/desc", body: desc("foo", "1.0-1") + "\n%ISIZE%\n+1\n"})},
 		{"bad build date", tarOf(entry{name: "foo-1.0-1/desc", body: desc("foo", "1.0-1") + "\n%BUILDDATE%\nyesterday\n"})},
 		{"oversized desc", tarOf(entry{name: "foo-1.0-1/desc", body: desc("foo", "1.0-1") + "\n%DESC%\n" + strings.Repeat("x", maxEntrySize) + "\n"})},
 	}
