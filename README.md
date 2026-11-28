@@ -136,6 +136,7 @@ packages = registries.BulkFetchPackagesWithConcurrency(ctx, purls, nil, 5)
 | Terraform | `pkg:terraform/hashicorp/consul/aws@0.11.0` (module), `pkg:terraform/hashicorp/random@3.6.0` (provider) |
 | GitHub Actions | `pkg:githubactions/actions/checkout@v4` |
 | VS Code extension | `pkg:vscode-extension/redhat/vscode-yaml@1.15.0` |
+| Arch Linux | `pkg:alpm/arch/pacman@7.1.0.r9.g54d9411-4?arch=x86_64&repository_url=https://geo.mirror.pkgbuild.com/core/os/x86_64/core.db` |
 | Alpine | `pkg:apk/alpine/curl@8.22.0-r0?arch=x86_64&repository_url=https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64` |
 | Debian | `pkg:deb/debian/curl@7.88.1-10+deb12u14?arch=amd64&distro=bookworm&repository_url=https://deb.debian.org/debian%3Fsuites%3Dbookworm%2Cbookworm-updates%26architectures%3Damd64` |
 | RPM | `pkg:rpm/fedora/curl@8.15.0-4.fc43?arch=x86_64&distro=fedora-43&repository_url=https://dl.fedoraproject.org/pub/fedora/linux/releases/43/Everything/x86_64/os%3Fdistro%3Dfedora-43` |
@@ -198,12 +199,15 @@ import _ "github.com/git-pkgs/registries/all"
 | Deno | `deno` | https://apiland.deno.dev |
 | Terraform | `terraform` | https://registry.terraform.io |
 | Swift | `swift` | URL required |
+| Arch Linux | `alpm` | URL required |
 | Alpine | `apk` | URL required |
 | Debian | `deb` | URL required |
 | RPM | `rpm` | URL required |
 | GitHub Actions | `githubactions` | https://api.github.com |
 | VS Code extension | `vscode-extension` | https://open-vsx.org |
 | APM | None | URL required |
+
+The Arch Linux URL is one pacman sync database, such as `https://geo.mirror.pkgbuild.com/core/os/x86_64/core.db`, which names the repository and architecture; the client doesn't pick either from a mirror root. It reads the database's tar compressed with gzip, zstd or xz, or uncompressed, telling them apart by their first bytes, and caps it at 1 GiB decompressed. A path that is absolute, climbs out with `..` or nests below a package's directory, a `NAME` or `VERSION` that disagrees with the directory name, or a `FILENAME` holding a path makes the whole database an error. Each version's artifact is its `FILENAME` beside the database, with `SHA256SUM` as integrity (`sha256-...`), `CSIZE` as size and the metadata `arch` (`x86_64`, `any`, …), so `URLs().Download` is empty and `fetch.Resolver` reads the database. Versions keep their epoch and package release (`1:1.4-1`) and compare with the `alpm` scheme. `DEPENDS` are runtime dependencies and `OPTDEPENDS` optional ones, without their descriptions. A name another package provides, such as `libcurl.so=4-64`, is listed as that package, the first by name where several provide it; one nothing in the database provides is kept as written. Make, check, conflict, replace and provide relations, groups, the base package and the packager are in the version's metadata. `FetchMaintainers` reads `PACKAGER`, splitting `Name <email>`. Through a PURL, the `arch` namespace is kept as `Package.Namespace`.
 
 The Alpine URL is one repository architecture directory, such as `https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64`, or the `APKINDEX.tar.gz` inside it. The client doesn't pick a release, component or architecture from a mirror root. It reads v2 `APKINDEX.tar.gz` indexes. When a directory serves a v3 `Packages.adb`, the client returns an error rather than reading the v2 index.
 
