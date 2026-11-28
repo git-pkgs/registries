@@ -20,7 +20,7 @@ import (
 func TestSupportedEcosystems(t *testing.T) {
 	ecosystems := registries.SupportedEcosystems()
 
-	expected := []string{"apk", "apm", "brew", "cargo", "clojars", "cocoapods", "composer", "conda", "cpan", "cran", "deb", "deno", "dub", "elm", "gem", "githubactions", "golang", "hackage", "haxelib", "helm", "hex", "julia", "luarocks", "maven", "nimble", "npm", "nuget", "pub", "pypi", "rpm", "swift", "terraform", "vscode-extension"}
+	expected := []string{"alpm", "apk", "apm", "brew", "cargo", "clojars", "cocoapods", "composer", "conda", "cpan", "cran", "deb", "deno", "dub", "elm", "gem", "githubactions", "golang", "hackage", "haxelib", "helm", "hex", "julia", "luarocks", "maven", "nimble", "npm", "nuget", "pub", "pypi", "rpm", "swift", "terraform", "vscode-extension"}
 	sort.Strings(ecosystems)
 
 	if len(ecosystems) != len(expected) {
@@ -69,6 +69,7 @@ func TestNew(t *testing.T) {
 		{"helm", true},
 		{"swift", true},
 		{"apm", true},
+		{"alpm", true},
 		{"apk", true},
 		{"deb", true},
 		{"rpm", true},
@@ -120,6 +121,7 @@ func TestDefaultURL(t *testing.T) {
 		{"helm", ""},
 		{"swift", ""},
 		{"apm", ""},
+		{"alpm", ""},
 		{"apk", ""},
 		{"deb", ""},
 		{"rpm", ""},
@@ -348,4 +350,54 @@ func apkIndex(t *testing.T, index string) []byte {
 		t.Fatal(err)
 	}
 	return out.Bytes()
+}
+
+func TestALPMFromPURL(t *testing.T) {
+	desc := "%FILENAME%\npacman-7.1.0-4-x86_64.pkg.tar.zst\n\n%NAME%\npacman\n\n%VERSION%\n7.1.0-4\n\n%ARCH%\nx86_64\n\n%DEPENDS%\ncurl\n"
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	if err := tw.WriteHeader(&tar.Header{Name: "pacman-7.1.0-4/desc", Mode: 0o644, Size: int64(len(desc))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte(desc)); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/core/os/x86_64/core.db" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(buf.Bytes())
+	}))
+	defer srv.Close()
+
+	purl := "pkg:alpm/arch/pacman@7.1.0-4?arch=x86_64&repository_url=" + srv.URL + "/core/os/x86_64/core.db"
+	v, err := registries.FetchVersionFromPURL(context.Background(), purl, nil)
+	if err != nil {
+		t.Fatalf("FetchVersionFromPURL failed: %v", err)
+	}
+	if v.Number != "7.1.0-4" || v.Artifacts[0].URL != srv.URL+"/core/os/x86_64/pacman-7.1.0-4-x86_64.pkg.tar.zst" {
+		t.Errorf("version = %+v", v)
+	}
+
+	pkg, err := registries.FetchPackageFromPURL(context.Background(), purl, nil)
+	if err != nil || pkg.Namespace != "arch" || pkg.Name != "pacman" {
+		t.Errorf("package = %+v, %v", pkg, err)
+	}
+
+	deps, err := registries.FetchDependenciesFromPURL(context.Background(), purl, nil)
+	if err != nil || len(deps) != 1 || deps[0].Name != "curl" {
+		t.Errorf("deps = %+v, %v", deps, err)
+	}
+
+	if _, err := registries.FetchVersionFromPURL(context.Background(), "pkg:alpm/arch/pacman@7.1.0-4?arch=x86_64", nil); err == nil || !strings.Contains(err.Error(), "no registry URL configured") {
+		t.Errorf("missing URL err = %v", err)
+	}
 }
